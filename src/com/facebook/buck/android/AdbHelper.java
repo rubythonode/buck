@@ -74,7 +74,7 @@ import javax.annotation.Nullable;
  */
 public class AdbHelper {
 
-  private static final long ADB_CONNECT_TIMEOUT_MS = 5000;
+  private static final long ADB_CONNECT_TIMEOUT_MS = 60000;
   private static final long ADB_CONNECT_TIME_STEP_MS = ADB_CONNECT_TIMEOUT_MS / 10;
 
   /**
