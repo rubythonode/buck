@@ -241,7 +241,9 @@ public class IjProjectTemplateDataPreparer {
         .stream()
         .map(transformToFolder::apply)
         .filter(folder -> !(folder.getType().equals("excludeFolder")
-            && (folder.getUrl().endsWith("/res") || folder.getUrl().endsWith("/assets"))))
+            && (folder.getUrl().endsWith("/res")
+            || folder.getUrl().endsWith("/assets")
+            || folder.getUrl().endsWith("/src"))))
         .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
 
     return ContentRoot.builder()
