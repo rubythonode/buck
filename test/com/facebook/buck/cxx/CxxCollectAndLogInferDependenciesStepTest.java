@@ -103,7 +103,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     return new CxxInferCapture(
         buildRuleParams,
-        sourcePathResolver,
         CxxToolFlags.of(),
         CxxToolFlags.of(),
         new FakeSourcePath("src.c"),
@@ -136,11 +135,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
         .setProjectFilesystem(filesystem)
         .build();
 
-    BuildRuleResolver testBuildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(testBuildRuleResolver));
-
     InferBuckConfig inferBuckConfig = new InferBuckConfig(FakeBuckConfig.builder().build());
 
     CxxInferCaptureAndAggregatingRules<CxxInferAnalyze> captureAndAggregatingRules =
@@ -150,7 +144,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     CxxInferAnalyze analyzeRule = new CxxInferAnalyze(
         testBuildRuleParams,
-        testSourcePathResolver,
         inferBuckConfig,
         captureAndAggregatingRules);
 
@@ -195,11 +188,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
         .setProjectFilesystem(filesystem)
         .build();
 
-    BuildRuleResolver testBuildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(testBuildRuleResolver));
-
     InferBuckConfig inferBuckConfig = new InferBuckConfig(FakeBuckConfig.builder().build());
 
     CxxInferCaptureAndAggregatingRules<CxxInferAnalyze> captureAndAggregatingRules =
@@ -209,7 +197,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     CxxInferAnalyze analyzeRule = new CxxInferAnalyze(
         testBuildRuleParams,
-        testSourcePathResolver,
         inferBuckConfig,
         captureAndAggregatingRules);
 
@@ -285,7 +272,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     CxxInferAnalyze analyzeRule = new CxxInferAnalyze(
         buildRuleParams1,
-        testSourcePathResolver,
         inferBuckConfig,
         captureAndAggregatingRules);
 
@@ -363,7 +349,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     CxxInferAnalyze analyzeRule = new CxxInferAnalyze(
         buildRuleParams1,
-        testSourcePathResolver,
         inferBuckConfig,
         captureAndAggregatingRules);
 

@@ -230,7 +230,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
                     cxxRuntime.getSoname()),
                 new PathSourcePath(
                     buildRuleParams.getProjectFilesystem(),
-                    platform.getCxxSharedRuntimePath()));
+                    platform.getCxxSharedRuntimePath().get()));
           }
         }
       }
@@ -390,7 +390,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       result.put(
           stripLinkable,
           StrippedObjectDescription.builder()
-              .setSourcePath(new BuildTargetSourcePath(stripLinkable.getBuildTarget()))
+              .setSourcePath(stripLinkable.getSourcePathToOutput())
               .setStrippedObjectName(sharedLibrarySoName)
               .setTargetCpuType(targetCpuType)
               .build());

@@ -30,11 +30,9 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -239,7 +237,7 @@ public class PythonTestDescription implements
             .<Path, SourcePath>builder()
             .put(
                 getTestModulesListName(),
-                new BuildTargetSourcePath(testModulesBuildRule.getBuildTarget()))
+                testModulesBuildRule.getSourcePathToOutput())
             .put(
                 getTestMainName(),
                 pythonBuckConfig.getPathToTestMain(params.getProjectFilesystem()))
@@ -270,13 +268,9 @@ public class PythonTestDescription implements
             args.preloadDeps);
 
     // Build the PEX using a python binary rule with the minimum dependencies.
-    BuildRuleParams binaryParams = params.copyWithChanges(
-        getBinaryBuildTarget(params.getBuildTarget()),
-        Suppliers.ofInstance(PythonUtil.getDepsFromComponents(ruleFinder, allComponents)),
-        Suppliers.ofInstance(ImmutableSortedSet.of()));
     PythonBinary binary =
         binaryDescription.createPackageRule(
-            binaryParams,
+            params.copyWithBuildTarget(getBinaryBuildTarget(params.getBuildTarget())),
             resolver,
             pathResolver,
             ruleFinder,
@@ -337,14 +331,8 @@ public class PythonTestDescription implements
                     resolver)));
 
     // Generate and return the python test rule, which depends on the python binary rule above.
-    return new PythonTest(
-        params.copyWithDeps(
-            Suppliers.ofInstance(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(params.getDeclaredDeps().get())
-                    .add(binary)
-                    .build()),
-            params.getExtraDeps()),
+    return PythonTest.from(
+        params,
         ruleFinder,
         testEnv,
         binary,
@@ -384,7 +372,6 @@ public class PythonTestDescription implements
   public static class Arg extends PythonLibraryDescription.Arg {
     public Optional<String> mainModule;
     public ImmutableSet<String> contacts = ImmutableSet.of();
-    public ImmutableSet<Label> labels = ImmutableSet.of();
     public Optional<String> platform;
     public Optional<String> extension;
     public Optional<PythonBuckConfig.PackageStyle> packageStyle;

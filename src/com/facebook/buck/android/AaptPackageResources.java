@@ -16,7 +16,6 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.AaptPackageResources.BuildOutput;
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -25,39 +24,40 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildOutputInitializer;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RecordFileSha1Step;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * Packages the resources using {@code aapt}.
  */
-public class AaptPackageResources extends AbstractBuildRule
-    implements InitializableFromDisk<BuildOutput> {
+public class AaptPackageResources extends AbstractBuildRule {
 
   public static final String RESOURCE_PACKAGE_HASH_KEY = "resource_package_hash";
   public static final String FILTERED_RESOURCE_DIRS_KEY = "filtered_resource_dirs";
@@ -80,16 +80,44 @@ public class AaptPackageResources extends AbstractBuildRule
   private final EnumSet<RType> bannedDuplicateResourceTypes;
   @AddToRuleKey
   private final ManifestEntries manifestEntries;
-  private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
   @AddToRuleKey
   private final boolean includesVectorDrawables;
 
-
-  AaptPackageResources(
-      BuildRuleParams params,
+  static ImmutableSortedSet<BuildRule> getAllDeps(
+      BuildTarget aaptTarget,
+      SourcePathRuleFinder ruleFinder,
+      BuildRuleResolver ruleResolver,
       SourcePath manifest,
       FilteredResourcesProvider filteredResourcesProvider,
       ImmutableList<HasAndroidResourceDeps> resourceDeps,
+      ImmutableSortedSet<BuildRule> extraDeps,
+      ImmutableSet<SourcePath> assetsDirectories) {
+
+    ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
+    depsBuilder.addAll(extraDeps);
+    Stream<BuildTarget> resourceTargets = resourceDeps.stream()
+        .map(HasAndroidResourceDeps::getBuildTarget);
+    depsBuilder.addAll(
+            BuildRules.toBuildRulesFor(
+                aaptTarget,
+                ruleResolver,
+                resourceTargets::iterator));
+    Stream<SourcePath> resourceDirs = resourceDeps.stream().map(HasAndroidResourceDeps::getRes);
+    depsBuilder.addAll(ruleFinder.filterBuildRuleInputs(resourceDirs));
+    depsBuilder.addAll(ruleFinder.filterBuildRuleInputs(assetsDirectories));
+    ruleFinder.getRule(manifest).ifPresent(depsBuilder::add);
+    filteredResourcesProvider.getResourceFilterRule().ifPresent(depsBuilder::add);
+    return depsBuilder.build();
+  }
+
+  AaptPackageResources(
+      BuildRuleParams params,
+      SourcePathRuleFinder ruleFinder,
+      BuildRuleResolver ruleResolver,
+      SourcePath manifest,
+      FilteredResourcesProvider filteredResourcesProvider,
+      ImmutableList<HasAndroidResourceDeps> resourceDeps,
+      ImmutableSortedSet<BuildRule> extraDeps,
       ImmutableSet<SourcePath> assetsDirectories,
       Optional<String> resourceUnionPackage,
       PackageType packageType,
@@ -98,7 +126,18 @@ public class AaptPackageResources extends AbstractBuildRule
       boolean includesVectorDrawables,
       EnumSet<RType> bannedDuplicateResourceTypes,
       ManifestEntries manifestEntries) {
-    super(params);
+    super(params.copyWithDeps(
+        Suppliers.ofInstance(getAllDeps(
+            params.getBuildTarget(),
+            ruleFinder,
+            ruleResolver,
+            manifest,
+            filteredResourcesProvider,
+            resourceDeps,
+            extraDeps,
+            assetsDirectories)),
+        Suppliers.ofInstance(ImmutableSortedSet.of())
+    ));
     this.manifest = manifest;
     this.filteredResourcesProvider = filteredResourcesProvider;
     this.resourceDeps = resourceDeps;
@@ -110,7 +149,6 @@ public class AaptPackageResources extends AbstractBuildRule
     this.includesVectorDrawables = includesVectorDrawables;
     this.bannedDuplicateResourceTypes = bannedDuplicateResourceTypes;
     this.manifestEntries = manifestEntries;
-    this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
   @Override
@@ -281,11 +319,15 @@ public class AaptPackageResources extends AbstractBuildRule
    * Therefore, commands created by this buildable should use this method instead of
    * {@link #manifest}.
    */
-  Path getAndroidManifestXml() {
+  private Path getAndroidManifestXml() {
     return BuildTargets.getScratchPath(
         getProjectFilesystem(),
         getBuildTarget(),
         "__manifest_%s__/AndroidManifest.xml");
+  }
+
+  SourcePath getAndroidManifestXmlSourcePath() {
+    return new BuildTargetSourcePath(getBuildTarget(), getAndroidManifestXml());
   }
 
   /**
@@ -294,41 +336,6 @@ public class AaptPackageResources extends AbstractBuildRule
   public Path getResourceApkPath() {
     return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(),
         RESOURCE_APK_PATH_FORMAT);
-  }
-
-  public Sha1HashCode getResourcePackageHash() {
-    return buildOutputInitializer.getBuildOutput().resourcePackageHash;
-  }
-
-  static class BuildOutput {
-    private final Sha1HashCode resourcePackageHash;
-
-    BuildOutput(Sha1HashCode resourcePackageHash) {
-      this.resourcePackageHash = resourcePackageHash;
-    }
-  }
-
-  @Override
-  public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
-    Optional<Sha1HashCode> resourcePackageHash = onDiskBuildInfo.getHash(RESOURCE_PACKAGE_HASH_KEY);
-    Preconditions.checkState(
-        resourcePackageHash.isPresent(),
-        "Should not be initializing %s from disk if the resource hash is not written.",
-        getBuildTarget());
-
-    Optional<ImmutableList<String>> filteredResourceDirs =
-        onDiskBuildInfo.getValues(FILTERED_RESOURCE_DIRS_KEY);
-    Preconditions.checkState(
-        filteredResourceDirs.isPresent(),
-        "Should not be initializing %s from disk if the filtered resources dirs are not written.",
-        getBuildTarget());
-
-    return new BuildOutput(resourcePackageHash.get());
-  }
-
-  @Override
-  public BuildOutputInitializer<BuildOutput> getBuildOutputInitializer() {
-    return buildOutputInitializer;
   }
 
   /**
@@ -362,6 +369,14 @@ public class AaptPackageResources extends AbstractBuildRule
   public Path getPathToGeneratedProguardConfigDir() {
     return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__%s__proguard__")
         .resolve(".proguard");
+  }
+
+  public Optional<SourcePath> getSourcePathtoGeneratedProguardConfigDir() {
+    if (!packageType.isBuildWithObfuscation()) {
+      return Optional.empty();
+    }
+    return Optional.of(new BuildTargetSourcePath(
+        getBuildTarget(), getPathToGeneratedProguardConfigDir()));
   }
 
   @VisibleForTesting

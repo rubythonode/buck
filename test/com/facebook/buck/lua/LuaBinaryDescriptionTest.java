@@ -38,7 +38,6 @@ import com.facebook.buck.python.PythonLibraryBuilder;
 import com.facebook.buck.python.PythonPlatform;
 import com.facebook.buck.python.PythonVersion;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -52,7 +51,6 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.buck.util.MoreStreams;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -93,7 +91,7 @@ public class LuaBinaryDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     LuaBinary binary =
-        (LuaBinary) new LuaBinaryBuilder(BuildTargetFactory.newInstance("//:rule"))
+        new LuaBinaryBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setMainModule("hello.world")
             .build(resolver);
     assertThat(binary.getMainModule(), Matchers.equalTo("hello.world"));
@@ -104,7 +102,7 @@ public class LuaBinaryDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     LuaBinary binary =
-        (LuaBinary) new LuaBinaryBuilder(
+        new LuaBinaryBuilder(
                 BuildTargetFactory.newInstance("//:rule"),
                 FakeLuaConfig.DEFAULT
                     .withExtension(".override"))
@@ -119,7 +117,7 @@ public class LuaBinaryDescriptionTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     Tool override = new CommandTool.Builder().addArg("override").build();
     LuaBinary binary =
-        (LuaBinary) new LuaBinaryBuilder(
+        new LuaBinaryBuilder(
             BuildTargetFactory.newInstance("//:rule"),
             FakeLuaConfig.DEFAULT
                 .withLua(override)
@@ -230,7 +228,7 @@ public class LuaBinaryDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     pythonLibraryBuilder.build(resolver, filesystem, targetGraph);
-    LuaBinary luaBinary = (LuaBinary) luaBinaryBuilder.build(resolver, filesystem, targetGraph);
+    LuaBinary luaBinary = luaBinaryBuilder.build(resolver, filesystem, targetGraph);
     assertThat(
         luaBinary.getComponents().getPythonModules().keySet(),
         Matchers.hasItem("foo.py"));
@@ -294,7 +292,7 @@ public class LuaBinaryDescriptionTest {
     py2CxxLibraryBuilder.build(resolver);
     py3CxxLibraryBuilder.build(resolver);
     cxxPythonExtensionBuilder.build(resolver);
-    LuaBinary luaBinary = (LuaBinary) luaBinaryBuilder.build(resolver);
+    LuaBinary luaBinary = luaBinaryBuilder.build(resolver);
 
     LuaPackageComponents components = luaBinary.getComponents();
     assertThat(
@@ -323,11 +321,9 @@ public class LuaBinaryDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     pythonLibraryBuilder.build(resolver, filesystem, targetGraph);
-    LuaBinary luaBinary = (LuaBinary) luaBinaryBuilder.build(resolver, filesystem, targetGraph);
+    LuaBinary luaBinary = luaBinaryBuilder.build(resolver, filesystem, targetGraph);
     assertThat(
         luaBinary.getRuntimeDeps()
-            .flatMap(MoreStreams.filterCast(BuildTargetSourcePath.class))
-            .map(BuildTargetSourcePath::getTarget)
             .collect(MoreCollectors.toImmutableSet()),
         Matchers.hasItem(PythonBinaryDescription.getEmptyInitTarget(luaBinary.getBuildTarget())));
   }
@@ -365,7 +361,7 @@ public class LuaBinaryDescriptionTest {
     transitiveCxxDepBuilder.build(resolver);
     cxxDepBuilder.build(resolver);
     cxxBuilder.build(resolver);
-    LuaBinary binary = (LuaBinary) binaryBuilder.build(resolver);
+    LuaBinary binary = binaryBuilder.build(resolver);
     assertThat(
         Iterables.transform(
             binary.getComponents().getNativeLibraries().keySet(),
@@ -406,7 +402,7 @@ public class LuaBinaryDescriptionTest {
     transitiveCxxDepBuilder.build(resolver);
     cxxDepBuilder.build(resolver);
     cxxBuilder.build(resolver);
-    LuaBinary binary = (LuaBinary) binaryBuilder.build(resolver);
+    LuaBinary binary = binaryBuilder.build(resolver);
     assertThat(
         Iterables.transform(
             binary.getComponents().getNativeLibraries().keySet(),
@@ -456,7 +452,7 @@ public class LuaBinaryDescriptionTest {
     cxxDepBuilder.build(resolver);
     cxxBuilder.build(resolver);
     nativeStarterCxxBuilder.build(resolver);
-    LuaBinary binary = (LuaBinary) binaryBuilder.build(resolver);
+    LuaBinary binary = binaryBuilder.build(resolver);
     assertThat(
         Iterables.transform(
             binary.getComponents().getNativeLibraries().keySet(),
@@ -502,7 +498,7 @@ public class LuaBinaryDescriptionTest {
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     python2Builder.build(resolver, filesystem, targetGraph);
     extensionBuilder.build(resolver, filesystem, targetGraph);
-    LuaBinary binary = (LuaBinary) binaryBuilder.build(resolver, filesystem, targetGraph);
+    LuaBinary binary = binaryBuilder.build(resolver, filesystem, targetGraph);
     assertThat(
         binary.getComponents().getNativeLibraries().entrySet(),
         Matchers.empty());

@@ -725,6 +725,7 @@ docsearch({
   {$args|noAutoescape}
   {call buck.visibility_arg /}
   {call buck.licenses_arg /}
+  {call buck.labels_arg /}
 </ul>
 
 {if $flavors}
@@ -1175,6 +1176,49 @@ docsearch({
 {/template}
 
 /***/
+{template .deps_query_arg}
+{call buck.arg}
+  {param name: 'deps_query' /}
+  {param default : 'None' /}
+  {param desc}
+  Status: <strong>experimental/unstable</strong>.
+  The deps query takes a query string that accepts the following query functions, and appends the
+  output of the query to the declared deps:
+  {literal}
+  <ul style="line-height:0.5em">
+    <li><code>attrfilter</code></li>
+    <li><code>deps</code></li>
+    <li><code>except</code></li>
+    <li><code>intersect</code></li>
+    <li><code>filter</code></li>
+    <li><code>kind</code></li>
+    <li><code>set</code></li>
+    <li><code>union</code></li>
+  </ul>
+  {/literal}
+
+  The macro <code>$declared_deps</code> may be used anywhere a target literal pattern is expected
+  in order to refer to the explicit deps of this rule as they appear in the rule's definition.
+  For example, if your build rule declares
+  {literal}<pre class="prettyprint lang-py">
+  android_library(
+    name = 'lib',
+    deps = ['//foo:foo'],
+    deps_query = '$declared_deps',
+  )</pre>
+  {/literal}
+  then the macro <code>$declared_deps</code> would be expanded to a
+  literal <code>set(//foo:foo)</code>.
+  Some example queries:
+  {literal}<pre>
+  "filter({name_regex}, $declared_deps)".format(name_regex='//.*')
+  "attrfilter(annotation_processors, com.foo.Processor, $declared_deps)"</pre>
+  {/literal}
+  {/param}
+{/call}
+{/template}
+
+/***/
 {template .licenses_arg}
 {call buck.arg}
   {param name: 'licenses' /}
@@ -1182,6 +1226,18 @@ docsearch({
   {param desc}
   Set of license files for this library.  To get the list of license files for a given{sp}
   {call buck.build_rule /} and all of its dependencies, you can use {call buck.cmd_query /}.
+  {/param}
+{/call}
+{/template}
+
+/***/
+{template .labels_arg}
+{call buck.arg}
+  {param name: 'labels' /}
+  {param default: '[]' /}
+  {param desc}
+  Set of arbitrary strings which allow you to annotate a {call buck.build_rule /} with tags
+  that can be searched for over an entire dependency tree using {call buckquery.attrfilter /}.
   {/param}
 {/call}
 {/template}
@@ -1262,7 +1318,7 @@ docsearch({
 {template .fork_mode}
 {call buck.arg}
   {param name: 'fork_mode' /}
-  {param default : 'none' /}
+  {param default : 'None' /}
   {param desc}
   Controls whether tests will all be run in the same process or a process will be
   started for each set of tests in a class.
@@ -1287,7 +1343,7 @@ docsearch({
 {template .test_rule_timeout_ms}
 {call buck.arg}
   {param name: 'test_rule_timeout_ms' /}
-  {param default: '[]' /}
+  {param default: 'None' /}
   {param desc}
   If set specifies the maximum amount of time (in milliseconds) in which all of the tests in this
   rule should complete. This overrides the default <code>rule_timeout</code> if any has been

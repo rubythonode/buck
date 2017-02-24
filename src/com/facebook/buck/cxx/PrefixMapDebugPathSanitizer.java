@@ -15,7 +15,9 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.infer.annotation.Assertions;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
@@ -33,6 +35,7 @@ import java.util.Optional;
  */
 public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
   protected final ImmutableBiMap<Path, Path> allPaths;
+  private final ProjectFilesystem projectFilesystem;
   private boolean isGcc;
   private Path compilationDir;
 
@@ -42,10 +45,12 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
       Path fakeCompilationDirectory,
       ImmutableBiMap<Path, Path> other,
       Path realCompilationDirectory,
-      CxxToolProvider.Type cxxType) {
+      CxxToolProvider.Type cxxType,
+      ProjectFilesystem projectFilesystem) {
     super(
         separator, pathSize,
         fakeCompilationDirectory);
+    this.projectFilesystem = projectFilesystem;
     this.isGcc = cxxType == CxxToolProvider.Type.GCC;
     this.compilationDir = realCompilationDirectory;
     ImmutableBiMap.Builder<Path, Path> pathsBuilder = ImmutableBiMap.builder();
@@ -72,7 +77,7 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
   }
 
   @Override
-  Map<String, String> getCompilationEnvironment(
+  ImmutableMap<String, String> getCompilationEnvironment(
       Path workingDir, boolean shouldSanitize) {
     if (!workingDir.equals(compilationDir)) {
       throw new AssertionError(String.format(
@@ -122,5 +127,16 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
     }
     // We need to always sanitize the real workingDir because we add it directly into the flags.
     return allPaths;
+  }
+
+  @Override
+  public void assertInProjectFilesystem(Object ruleName, ProjectFilesystem projectFilesystem) {
+    Preconditions.checkState(
+        this.projectFilesystem.getRootPath().equals(projectFilesystem.getRootPath()),
+        "When processing %s, tried to use DebugPathSanitizer for " +
+            "ProjectFilesystem rooted at %s for rule rooted at %s",
+        ruleName,
+        this.projectFilesystem.getRootPath(),
+        projectFilesystem.getRootPath());
   }
 }

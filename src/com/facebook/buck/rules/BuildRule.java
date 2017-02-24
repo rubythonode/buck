@@ -19,7 +19,6 @@ package com.facebook.buck.rules;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.step.Step;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -35,9 +34,8 @@ import javax.annotation.Nullable;
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE,
     getterVisibility = JsonAutoDetect.Visibility.NONE,
     setterVisibility = JsonAutoDetect.Visibility.NONE)
-public interface BuildRule extends Comparable<BuildRule>, HasBuildTarget {
+public interface BuildRule extends Comparable<BuildRule> {
 
-  @Override
   BuildTarget getBuildTarget();
 
   @JsonProperty("name")
@@ -70,11 +68,20 @@ public interface BuildRule extends Comparable<BuildRule>, HasBuildTarget {
   @Nullable
   Path getPathToOutput();
 
+  @Nullable
+  default SourcePath getSourcePathToOutput() {
+    Path output = getPathToOutput();
+    if (output == null) {
+      return null;
+    }
+    return new BuildTargetSourcePath(getBuildTarget());
+  }
+
   /**
    * @return true if the output of this build rule is compatible with {@code buck build --out}.
-   *     To be compatible, that means (1) {@link #getPathToOutput()} cannot return {@code null},
-   *     and (2) the output file works as intended when copied to an arbitrary path (i.e., does not
-   *     have any dependencies on relative symlinks).
+   *     To be compatible, that means (1) {@link #getSourcePathToOutput()} cannot return
+   *     {@code null}, and (2) the output file works as intended when copied to an arbitrary path
+   *     (i.e., does not have any dependencies on relative symlinks).
    */
   default boolean outputFileCanBeCopied() {
     return getPathToOutput() != null;
@@ -94,5 +101,12 @@ public interface BuildRule extends Comparable<BuildRule>, HasBuildTarget {
    */
   @JsonIgnore
   boolean isCacheable();
+
+  /**
+   * Add additional details when calculating this rule's {@link RuleKey} which isn't available via
+   * reflection.
+   */
+  @SuppressWarnings("unused")
+  default void appendToRuleKey(RuleKeyObjectSink sink) {}
 
 }

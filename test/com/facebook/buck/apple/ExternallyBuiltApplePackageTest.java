@@ -84,6 +84,7 @@ public class ExternallyBuiltApplePackageTest {
         config,
         new FakeSourcePath(bundleLocation),
         true);
+    resolver.addToIndex(rule);
     ShellStep step = Iterables.getOnlyElement(
         Iterables.filter(
             rule.getBuildSteps(
@@ -98,13 +99,19 @@ public class ExternallyBuiltApplePackageTest {
 
   @Test
   public void outputContainsCorrectExtension() {
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(this.resolver));
     ExternallyBuiltApplePackage rule = new ExternallyBuiltApplePackage(
         params,
-        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
+        pathResolver,
         config,
         new FakeSourcePath("Fake/Bundle/Location"),
         true);
-    assertThat(Preconditions.checkNotNull(rule.getPathToOutput()).toString(), endsWith(".api"));
+    resolver.addToIndex(rule);
+    assertThat(
+        pathResolver.getRelativePath(
+            Preconditions.checkNotNull(rule.getSourcePathToOutput())).toString(),
+        endsWith(".api"));
   }
 
   @Test
@@ -117,6 +124,7 @@ public class ExternallyBuiltApplePackageTest {
         config,
         new FakeSourcePath("Fake/Bundle/Location"),
         true);
+    resolver.addToIndex(rule);
     AbstractGenruleStep step = Iterables.getOnlyElement(
         Iterables.filter(
             rule.getBuildSteps(

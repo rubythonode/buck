@@ -16,7 +16,9 @@
 
 package com.facebook.buck.jvm.java;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -44,6 +46,27 @@ import java.nio.file.Paths;
 public class CalculateAbiTest {
 
   @Test
+  public void testIsAbiTargetRecognizesAbiTargets() {
+    assertTrue(
+        CalculateAbi.isAbiTarget(
+            BuildTargetFactory.newInstance("//foo/bar:bar#abi")));
+  }
+
+  @Test
+  public void testIsAbiTargetRecognizesNonAbiTargets() {
+    assertFalse(
+        CalculateAbi.isAbiTarget(
+            BuildTargetFactory.newInstance("//foo/bar:bar#not-abi")));
+  }
+
+  @Test
+  public void testGetLibraryTarget() {
+    assertThat(
+        CalculateAbi.getLibraryTarget(BuildTargetFactory.newInstance("//foo/bar:bar#abi")),
+        Matchers.equalTo(BuildTargetFactory.newInstance("//foo/bar:bar")));
+  }
+
+  @Test
   public void ruleKeysChangeIfGeneratedBinaryJarChanges() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
@@ -56,11 +79,13 @@ public class CalculateAbiTest {
     BuildTarget javaLibraryTarget = BuildTargetFactory.newInstance("//:library");
     JavaLibraryBuilder builder =  JavaLibraryBuilder.createBuilder(javaLibraryTarget)
         .addSrc(new PathSourcePath(filesystem, input));
-    DefaultJavaLibrary javaLibrary = (DefaultJavaLibrary) builder.build(resolver, filesystem);
+    DefaultJavaLibrary javaLibrary = builder.build(resolver, filesystem);
 
     // Write something to the library source and geneated JAR, so they exist to generate rule keys.
     filesystem.writeContentsToPath("stuff", input);
-    filesystem.writeContentsToPath("stuff", javaLibrary.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "stuff",
+        pathResolver.getRelativePath(javaLibrary.getSourcePathToOutput()));
 
     BuildTarget target = BuildTargetFactory.newInstance("//:library-abi");
     CalculateAbi calculateAbi =
@@ -87,7 +112,9 @@ public class CalculateAbiTest {
 
     // Write something to the library source and geneated JAR, so they exist to generate rule keys.
     filesystem.writeContentsToPath("new stuff", input);
-    filesystem.writeContentsToPath("new stuff", javaLibrary.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "new stuff",
+        pathResolver.getRelativePath(javaLibrary.getSourcePathToOutput()));
 
     // Re-setup some entities to drop internal rule key caching.
     resolver =
@@ -128,11 +155,13 @@ public class CalculateAbiTest {
     BuildTarget javaLibraryTarget = BuildTargetFactory.newInstance("//:library");
     JavaLibraryBuilder builder =  JavaLibraryBuilder.createBuilder(javaLibraryTarget)
         .addSrc(new PathSourcePath(filesystem, input));
-    DefaultJavaLibrary javaLibrary = (DefaultJavaLibrary) builder.build(resolver, filesystem);
+    DefaultJavaLibrary javaLibrary = builder.build(resolver, filesystem);
 
     // Write something to the library source and geneated JAR, so they exist to generate rule keys.
     filesystem.writeContentsToPath("stuff", input);
-    filesystem.writeContentsToPath("stuff", javaLibrary.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "stuff",
+        pathResolver.getRelativePath(javaLibrary.getSourcePathToOutput()));
 
     BuildTarget target = BuildTargetFactory.newInstance("//:library-abi");
     CalculateAbi calculateAbi =

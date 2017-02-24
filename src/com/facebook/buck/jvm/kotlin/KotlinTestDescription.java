@@ -27,18 +27,19 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Either;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -81,14 +82,14 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
       A args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      BuildTarget testTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
-      resolver.requireRule(testTarget);
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
+      BuildTarget testTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
+      BuildRule testRule = resolver.requireRule(testTarget);
       return CalculateAbi.of(
           testTarget,
           ruleFinder,
           params,
-          new BuildTargetSourcePath(testTarget));
+          Preconditions.checkNotNull(testRule.getSourcePathToOutput()));
     }
 
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
@@ -101,8 +102,6 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
             ruleFinder,
             args
         );
-
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     KotlincToJarStepFactory stepFactory = new KotlincToJarStepFactory(
         kotlinBuckConfig.getKotlinCompiler().get(),
@@ -139,7 +138,6 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
                 ImmutableList.of(),      /* postprocessClassesCommands */
                 ImmutableSortedSet.of(), /* exportedDeps */
                 ImmutableSortedSet.of(), /* providedDeps */
-                abiJarTarget,
                 JavaLibraryRules.getAbiInputs(resolver, testsLibraryParams.getDeps()),
                 false,                   /* trackClassUsage */
                 ImmutableSet.of(),       /* additionalClasspathEntries */
@@ -157,7 +155,7 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,
         testsLibrary,
-        ImmutableSet.<Path>of(kotlinBuckConfig.getPathToRuntimeJar()),
+        ImmutableSet.<Either<SourcePath, Path>>of(kotlinBuckConfig.getPathToRuntimeJar()),
         args.labels,
         args.contacts,
         args.testType.orElse(TestType.JUNIT),
@@ -176,7 +174,6 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
   @SuppressFieldNotInitialized
   public static class Arg extends KotlinLibraryDescription.Arg {
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public ImmutableList<String> vmArgs = ImmutableList.of();
     public Optional<TestType> testType;
     public Optional<Boolean> runTestSeparately;

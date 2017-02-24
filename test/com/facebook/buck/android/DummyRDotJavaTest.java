@@ -81,12 +81,10 @@ public class DummyRDotJavaTest {
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//java/base:rule"))
             .setProjectFilesystem(filesystem)
             .build(),
-        pathResolver,
         ruleFinder,
         ImmutableSet.of(
             (HasAndroidResourceDeps) resourceRule1,
             (HasAndroidResourceDeps) resourceRule2),
-        BuildTargetFactory.newInstance("//:abi"),
         ANDROID_JAVAC_OPTIONS,
         /* forceFinalResourceIds */ false,
         Optional.empty(),
@@ -164,14 +162,11 @@ public class DummyRDotJavaTest {
         new BuildRuleResolver(
             TargetGraph.EMPTY,
             new DefaultTargetNodeToBuildRuleTransformer()));
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     DummyRDotJava dummyRDotJava = new DummyRDotJava(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//java/com/example:library"))
             .build(),
-        pathResolver,
         ruleFinder,
         ImmutableSet.of(),
-        BuildTargetFactory.newInstance("//:abi"),
         ANDROID_JAVAC_OPTIONS,
         /* forceFinalResourceIds */ false,
         Optional.empty(),
@@ -185,7 +180,7 @@ public class DummyRDotJavaTest {
   }
 
   private static String makeCleanDirDescription(Path dirname) {
-    return String.format("rm -r -f %s && mkdir -p %s", dirname, dirname);
+    return String.format("rm -f -r %s && mkdir -p %s", dirname, dirname);
   }
 
   private void setAndroidResourceBuildOutput(BuildRule resourceRule) {

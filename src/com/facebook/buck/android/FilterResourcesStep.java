@@ -61,7 +61,7 @@ import javax.annotation.Nullable;
 public class FilterResourcesStep implements Step {
 
   private static final Pattern DRAWABLE_PATH_PATTERN = Pattern.compile(
-      ".*drawable.*/.*(png|jpg|jpeg|gif|webp)", Pattern.CASE_INSENSITIVE);
+      ".*drawable.*/.*(png|jpg|jpeg|gif|webp|xml)", Pattern.CASE_INSENSITIVE);
   // Android doesn't scale these, so we don't need to scale or filter them either.
   private static final Pattern DRAWABLE_EXCLUDE_PATTERN = Pattern.compile(
       ".*-nodpi.*", Pattern.CASE_INSENSITIVE);
@@ -245,6 +245,10 @@ public class FilterResourcesStep implements Step {
         inResDirToOutResDirMap.values(),
         filesystem);
     for (Path drawable : drawables) {
+      if (drawable.toString().endsWith(".xml")) {
+        // Skip SVG and network drawables.
+        continue;
+      }
       if (drawable.toString().endsWith(".9.png")) {
         // Skip nine-patch for now.
         continue;
@@ -290,7 +294,7 @@ public class FilterResourcesStep implements Step {
   }
 
   public interface DrawableFinder {
-    public Set<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
+    public ImmutableSet<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
         throws IOException;
   }
 
@@ -303,7 +307,7 @@ public class FilterResourcesStep implements Step {
     }
 
     @Override
-    public Set<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
+    public ImmutableSet<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
         throws IOException {
       final ImmutableSet.Builder<Path> drawableBuilder = ImmutableSet.builder();
       for (Path dir : dirs) {

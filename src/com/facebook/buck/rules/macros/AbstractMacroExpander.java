@@ -24,7 +24,14 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.Optional;
 
+import javax.annotation.Nullable;
+
 public abstract class AbstractMacroExpander<T> implements MacroExpander {
+
+  /**
+   * @return the class for the parsed input type.
+   */
+  public abstract Class<T> getInputClass();
 
   /**
    * @return parse the input arguments into a type that will be used on the interfaces below.
@@ -84,16 +91,19 @@ public abstract class AbstractMacroExpander<T> implements MacroExpander {
   public ImmutableList<BuildTarget> extractParseTimeDepsFrom(
       BuildTarget target,
       CellPathResolver cellNames,
-      T input) {
+      T input)
+      throws MacroException {
     return ImmutableList.of();
   }
 
   @Override
+  @Nullable
   public final Object extractRuleKeyAppendables(
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      ImmutableList<String> input) throws MacroException {
+      ImmutableList<String> input)
+      throws MacroException {
     return extractRuleKeyAppendablesFrom(
         target,
         cellNames,
@@ -102,6 +112,7 @@ public abstract class AbstractMacroExpander<T> implements MacroExpander {
   }
 
   @SuppressWarnings("unused")
+  @Nullable
   public Object extractRuleKeyAppendablesFrom(
       BuildTarget target,
       CellPathResolver cellNames,

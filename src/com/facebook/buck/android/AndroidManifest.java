@@ -89,7 +89,7 @@ public class AndroidManifest extends AbstractBuildRule {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Clear out the old file, if it exists.
-    commands.add(new RmStep(getProjectFilesystem(), pathToOutputFile, RmStep.Mode.FORCED));
+    commands.add(new RmStep(getProjectFilesystem(), pathToOutputFile));
 
     // Make sure the directory for the output file exists.
     commands.add(new MkdirStep(getProjectFilesystem(), pathToOutputFile.getParent()));
@@ -99,7 +99,7 @@ public class AndroidManifest extends AbstractBuildRule {
             getProjectFilesystem(),
             context.getSourcePathResolver().getAbsolutePath(skeletonFile),
             context.getSourcePathResolver().getAllAbsolutePaths(manifestFiles),
-            getPathToOutput()));
+            context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())));
 
     buildableContext.recordArtifact(pathToOutputFile);
     return commands.build();

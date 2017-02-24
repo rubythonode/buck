@@ -16,7 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -25,6 +25,8 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -39,14 +41,12 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 
-import javax.annotation.Nullable;
-
 /**
  * A {@link BuildRule} used to have the provided {@link JavaLibrary} published to a maven repository
  *
  * @see #create
  */
-public class MavenUberJar extends AbstractBuildRuleWithResolver implements MavenPublishable {
+public class MavenUberJar extends AbstractBuildRule implements MavenPublishable {
 
   private final Optional<String> mavenCoords;
   private final Optional<SourcePath> mavenPomTemplate;
@@ -55,10 +55,9 @@ public class MavenUberJar extends AbstractBuildRuleWithResolver implements Maven
   private MavenUberJar(
       TraversedDeps traversedDeps,
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
-    super(params, resolver);
+    super(params);
     this.traversedDeps = traversedDeps;
     this.mavenCoords = mavenCoords;
     this.mavenPomTemplate = mavenPomTemplate;
@@ -81,14 +80,12 @@ public class MavenUberJar extends AbstractBuildRuleWithResolver implements Maven
   public static MavenUberJar create(
       JavaLibrary rootRule,
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
     TraversedDeps traversedDeps = TraversedDeps.traverse(ImmutableSet.of(rootRule));
     return new MavenUberJar(
         traversedDeps,
         adjustParams(params, traversedDeps),
-        resolver,
         mavenCoords,
         mavenPomTemplate);
   }
@@ -96,34 +93,25 @@ public class MavenUberJar extends AbstractBuildRuleWithResolver implements Maven
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    Path pathToOutput = getPathToOutput();
+    Path pathToOutput = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
     MkdirStep mkOutputDirStep = new MkdirStep(getProjectFilesystem(), pathToOutput.getParent());
     JarDirectoryStep mergeOutputsStep = new JarDirectoryStep(
         getProjectFilesystem(),
         pathToOutput,
-        toOutputPaths(traversedDeps.packagedDeps),
+        toOutputPaths(context.getSourcePathResolver(), traversedDeps.packagedDeps),
         /* mainClass */ null,
         /* manifestFile */ null);
     return ImmutableList.of(mkOutputDirStep, mergeOutputsStep);
   }
 
-  private static ImmutableSortedSet<Path> toOutputPaths(Iterable<? extends BuildRule> rules) {
-    return FluentIterable
-          .from(rules)
-          .transform(
-              new Function<BuildRule, Path>() {
-                @Nullable
-                @Override
-                public Path apply(BuildRule input) {
-                  Path pathToOutput = input.getPathToOutput();
-                  if (pathToOutput == null) {
-                    return null;
-                  }
-                  return input.getProjectFilesystem().resolve(pathToOutput);
-                }
-              })
-          .filter(Objects::nonNull)
-          .toSortedSet(Ordering.natural());
+  private static ImmutableSortedSet<Path> toOutputPaths(
+      SourcePathResolver pathResolver,
+      Iterable<? extends BuildRule> rules) {
+    return RichStream.from(rules)
+        .map(BuildRule::getSourcePathToOutput)
+        .filter(Objects::nonNull)
+        .map(pathResolver::getAbsolutePath)
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 
   @Override
@@ -137,8 +125,8 @@ public class MavenUberJar extends AbstractBuildRuleWithResolver implements Maven
   }
 
   @Override
-  public Optional<Path> getPomTemplate() {
-    return mavenPomTemplate.map(getResolver()::getAbsolutePath);
+  public Optional<SourcePath> getPomTemplate() {
+    return mavenPomTemplate;
   }
 
   @Override
@@ -158,19 +146,17 @@ public class MavenUberJar extends AbstractBuildRuleWithResolver implements Maven
 
     public SourceJar(
         BuildRuleParams params,
-        SourcePathResolver resolver,
         ImmutableSortedSet<SourcePath> srcs,
         Optional<String> mavenCoords,
         Optional<SourcePath> mavenPomTemplate,
         TraversedDeps traversedDeps) {
-      super(params, resolver, srcs, mavenCoords);
+      super(params, srcs, mavenCoords);
       this.traversedDeps = traversedDeps;
       this.mavenPomTemplate = mavenPomTemplate;
     }
 
     public static SourceJar create(
         BuildRuleParams params,
-        final SourcePathResolver resolver,
         ImmutableSortedSet<SourcePath> topLevelSrcs,
         Optional<String> mavenCoords,
         Optional<SourcePath> mavenPomTemplate) {
@@ -193,7 +179,6 @@ public class MavenUberJar extends AbstractBuildRuleWithResolver implements Maven
               .toSortedSet(Ordering.natural());
       return new SourceJar(
           params,
-          resolver,
           sourcePaths,
           mavenCoords,
           mavenPomTemplate,
@@ -201,8 +186,8 @@ public class MavenUberJar extends AbstractBuildRuleWithResolver implements Maven
     }
 
     @Override
-    public Optional<Path> getPomTemplate() {
-      return mavenPomTemplate.map(getResolver()::getAbsolutePath);
+    public Optional<SourcePath> getPomTemplate() {
+      return mavenPomTemplate;
     }
 
     @Override

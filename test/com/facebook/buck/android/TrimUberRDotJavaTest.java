@@ -21,17 +21,24 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeOnDiskBuildInfo;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -78,22 +85,31 @@ public class TrimUberRDotJavaTest {
       Optional<String> keepResourcePattern,
       String rDotJavaContentsAfterFiltering) throws IOException, InterruptedException {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmpFolder.getRoot());
+    BuildRuleResolver resolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     AaptPackageResources aaptPackageResources = new AaptPackageResources(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:aapt"))
             .setProjectFilesystem(filesystem)
             .build(),
+         ruleFinder,
+         resolver,
         null,
-        null,
-        null,
-        null,
-        null,
+        new IdentityResourcesProvider(ImmutableList.of()),
+        ImmutableList.of(),
+        ImmutableSortedSet.of(),
+        ImmutableSet.of(),
+        Optional.empty(),
         null,
         false,
         false,
         /* includesVectorDrawables */ false,
         EnumSet.noneOf(RType.class),
         null);
+    resolver.addToIndex(aaptPackageResources);
 
     String rDotJavaContents =
         "package com.test;\n" +
@@ -114,7 +130,6 @@ public class TrimUberRDotJavaTest {
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:dex"))
             .setProjectFilesystem(filesystem)
             .build(),
-        null,
         new FakeJavaLibrary(BuildTargetFactory.newInstance("//:lib"), null));
     dexProducedFromJavaLibrary.getBuildOutputInitializer().setBuildOutput(
         dexProducedFromJavaLibrary.initializeFromDisk(new FakeOnDiskBuildInfo()
@@ -123,6 +138,7 @@ public class TrimUberRDotJavaTest {
             .putMetadata(
                 DexProducedFromJavaLibrary.REFERENCED_RESOURCES,
                 ImmutableList.of("com.test.my_first_resource"))));
+    resolver.addToIndex(dexProducedFromJavaLibrary);
 
     TrimUberRDotJava trimUberRDotJava = new TrimUberRDotJava(
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:trim"))
@@ -131,8 +147,9 @@ public class TrimUberRDotJavaTest {
         aaptPackageResources,
         ImmutableList.of(dexProducedFromJavaLibrary),
         keepResourcePattern);
+    resolver.addToIndex(trimUberRDotJava);
 
-    BuildContext buildContext = FakeBuildContext.NOOP_CONTEXT;
+    BuildContext buildContext = FakeBuildContext.withSourcePathResolver(pathResolver);
     BuildableContext buildableContext = new FakeBuildableContext();
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     ImmutableList<Step> steps = trimUberRDotJava.getBuildSteps(buildContext, buildableContext);
@@ -141,7 +158,7 @@ public class TrimUberRDotJavaTest {
     }
 
     ZipInspector inspector =
-        new ZipInspector(filesystem.resolve(trimUberRDotJava.getPathToOutput()));
+        new ZipInspector(pathResolver.getAbsolutePath(trimUberRDotJava.getSourcePathToOutput()));
     inspector.assertFileContents("com/test/R.java", rDotJavaContentsAfterFiltering);
   }
 }

@@ -44,9 +44,9 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -233,7 +233,7 @@ public class AppleTestDescription implements
 
     String platformName = appleCxxPlatform.getAppleSdk().getApplePlatform().getName();
 
-    BuildRule bundle = AppleDescriptions.createAppleBundle(
+    AppleBundle bundle = AppleDescriptions.createAppleBundle(
         cxxPlatformFlavorDomain,
         defaultCxxPlatform,
         appleCxxPlatformFlavorDomain,
@@ -269,6 +269,7 @@ public class AppleTestDescription implements
 
     Optional<SourcePath> xctool = getXctool(params, resolver);
 
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new AppleTest(
         xctool,
         appleConfig.getXctoolStutterTimeoutMs(),
@@ -291,7 +292,8 @@ public class AppleTestDescription implements
         appleConfig.getTestLogLevel(),
         args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
         args.isUiTest(),
-        args.snapshotReferenceImagesPath);
+        args.snapshotReferenceImagesPath,
+        ruleFinder);
   }
 
   private Optional<SourcePath> getXctool(
@@ -325,7 +327,8 @@ public class AppleTestDescription implements
                     new MakeCleanDirectoryStep(getProjectFilesystem(), outputDirectory),
                     new UnzipStep(
                         getProjectFilesystem(),
-                        Preconditions.checkNotNull(xctoolZipBuildRule.getPathToOutput()),
+                        context.getSourcePathResolver().getAbsolutePath(
+                            Preconditions.checkNotNull(xctoolZipBuildRule.getSourcePathToOutput())),
                         outputDirectory));
               }
               @Override
@@ -419,8 +422,8 @@ public class AppleTestDescription implements
     }
 
     AppleBundle testHostApp = (AppleBundle) rule;
-    SourcePath testHostAppBinarySourcePath = new BuildTargetSourcePath(
-        testHostApp.getBinaryBuildRule().getBuildTarget());
+    SourcePath testHostAppBinarySourcePath =
+        testHostApp.getBinaryBuildRule().getSourcePathToOutput();
 
     ImmutableMap<BuildTarget, NativeLinkable> roots =
         NativeLinkables.getNativeLinkableRoots(
@@ -459,7 +462,6 @@ public class AppleTestDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends AppleNativeTargetDescriptionArg implements HasAppleBundleFields {
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public Optional<Boolean> runTestSeparately;
     public Optional<Boolean> isUiTest;
     public Optional<BuildTarget> testHostApp;

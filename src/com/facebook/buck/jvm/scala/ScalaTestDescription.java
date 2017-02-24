@@ -33,17 +33,16 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -86,14 +85,14 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
       A args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (rawParams.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      BuildTarget testTarget = rawParams.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
-      resolver.requireRule(testTarget);
+    if (CalculateAbi.isAbiTarget(rawParams.getBuildTarget())) {
+      BuildTarget testTarget = CalculateAbi.getLibraryTarget(rawParams.getBuildTarget());
+      BuildRule testRule = resolver.requireRule(testTarget);
       return CalculateAbi.of(
           rawParams.getBuildTarget(),
           ruleFinder,
           rawParams,
-          new BuildTargetSourcePath(testTarget));
+          Preconditions.checkNotNull(testRule.getSourcePathToOutput()));
     }
 
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
@@ -117,8 +116,6 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
     params = cxxLibraryEnhancement.updatedParams;
 
     Tool scalac = config.getScalac(resolver);
-
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     BuildRuleParams javaLibraryParams =
         params.appendExtraDeps(
@@ -145,16 +142,14 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
                 /* postprocessClassesCommands */ ImmutableList.of(),
                 /* exportDeps */ ImmutableSortedSet.of(),
                 /* providedDeps */ ImmutableSortedSet.of(),
-                abiJarTarget,
                 JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
                 /* trackClassUsage */ false,
                 /* additionalClasspathEntries */ ImmutableSet.of(),
                 new ScalacToJarStepFactory(
                     scalac,
-                    ImmutableList.<String>builder()
-                        .addAll(config.getCompilerFlags())
-                        .addAll(args.extraArguments)
-                        .build()
+                    config.getCompilerFlags(),
+                    args.extraArguments,
+                    ImmutableSet.of()
                 ),
                 args.resourcesRoot,
                 args.manifestFile,
@@ -198,7 +193,6 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
   @SuppressFieldNotInitialized
   public static class Arg extends ScalaLibraryDescription.Arg {
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public ImmutableList<String> vmArgs = ImmutableList.of();
     public Optional<TestType> testType;
     public Optional<Boolean> runTestSeparately;

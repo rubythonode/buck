@@ -20,7 +20,9 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.Linkers;
+import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkables;
+import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
@@ -29,7 +31,6 @@ import com.facebook.buck.rules.BinaryWrapperRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -44,10 +45,12 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -126,10 +129,23 @@ public class RustCompileUtils {
         .map(StringArg::new)
         .forEach(args::add);
 
-    // Find direct and transitive Rust deps. This could end up with a lot of redundant
-    // parameters (lots of rlibs in one directory), but Arg isn't comparable, so we can't
-    // put it in a Set.
-    new AbstractBreadthFirstTraversal<BuildRule>(ruledeps) {
+    // Find direct and transitive Rust deps. We do this in two passes, since a dependency that's
+    // both direct and transitive needs to be listed on the command line in each form.
+    //
+    // This could end up with a lot of redundant parameters (lots of rlibs in one directory),
+    // but Arg isn't comparable, so we can't put it in a Set.
+
+    // First pass - direct deps
+    ruledeps.stream()
+        .filter(RustLinkable.class::isInstance)
+        .map(rule -> ((RustLinkable) rule).getLinkerArg(true, cxxPlatform, depType))
+        .forEach(args::add);
+
+    // Second pass - indirect deps
+    new AbstractBreadthFirstTraversal<BuildRule>(
+        ruledeps.stream()
+            .flatMap(r -> r.getDeps().stream())
+            .collect(MoreCollectors.toImmutableList())) {
       private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
 
       @Override
@@ -137,8 +153,9 @@ public class RustCompileUtils {
         ImmutableSet<BuildRule> deps = empty;
         if (rule instanceof RustLinkable) {
           deps = rule.getDeps();
+
           Arg arg = ((RustLinkable) rule).getLinkerArg(
-              ruledeps.contains(rule),
+              false,
               cxxPlatform,
               depType);
 
@@ -328,19 +345,38 @@ public class RustCompileUtils {
             cxxPlatform.getFlavor(),
             RustDescriptionEnhancer.RFBIN);
 
+    final RustCompileRule buildRule = RustCompileUtils.createBuild(
+        binaryTarget,
+        crate,
+        params,
+        resolver,
+        pathResolver,
+        ruleFinder,
+        cxxPlatform,
+        rustBuckConfig,
+        rustcArgs.build(),
+        linkerArgs.build(),
+        /* linkerInputs */ ImmutableList.of(),
+        CrateType.BIN,
+        linkStyle,
+        rpath,
+        srcs,
+        rootModule.get());
+
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
     // Add the binary as the first argument.
-    executableBuilder.addArg(
-        new SourcePathArg(pathResolver, new BuildTargetSourcePath(binaryTarget)));
+    executableBuilder.addArg(new SourcePathArg(pathResolver, buildRule.getSourcePathToOutput()));
 
     // Special handling for dynamically linked binaries.
     if (linkStyle == Linker.LinkableDepType.SHARED) {
 
-      // Create a symlink tree with for all shared libraries needed by this binary.
+      // Create a symlink tree with for all native shared (NativeLinkable) libraries
+      // needed by this binary.
       SymlinkTree sharedLibraries =
           resolver.addToIndex(
               CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
+                  ruleFinder,
                   params,
                   cxxPlatform,
                   params.getDeps(),
@@ -364,27 +400,15 @@ public class RustCompileUtils {
       // this binary, so that users can attach the proper deps.
       executableBuilder.addDep(sharedLibraries);
       executableBuilder.addInputs(sharedLibraries.getLinks().values());
+
+      // Also add Rust shared libraries as runtime deps. We don't need these in the symlink tree
+      // because rustc will include their dirs in rpath by default.
+      Map<String, SourcePath> rustSharedLibraries =
+          getTransitiveRustSharedLibraries(cxxPlatform, params.getDeps());
+      executableBuilder.addInputs(rustSharedLibraries.values());
     }
 
     final CommandTool executable = executableBuilder.build();
-
-    final RustCompileRule buildRule = RustCompileUtils.createBuild(
-        binaryTarget,
-        crate,
-        params,
-        resolver,
-        pathResolver,
-        ruleFinder,
-        cxxPlatform,
-        rustBuckConfig,
-        rustcArgs.build(),
-        linkerArgs.build(),
-        /* linkerInputs */ ImmutableList.of(),
-        CrateType.BIN,
-        linkStyle,
-        rpath,
-        srcs,
-        rootModule.get());
 
     return new BinaryWrapperRule(params.appendExtraDeps(buildRule), ruleFinder) {
 
@@ -454,5 +478,39 @@ public class RustCompileUtils {
 
   public static String ruleToCrateName(String rulename) {
     return rulename.replace('-', '_');
+  }
+
+  /**
+   * Collect all the shared libraries generated by {@link RustLinkable}s found by transitively
+   * traversing all unbroken dependency chains of {@link com.facebook.buck.rust.RustLinkable}
+   * objects found via the passed in {@link com.facebook.buck.rules.BuildRule} roots.
+   *
+   * @return a mapping of library name to the library {@link SourcePath}.
+   */
+  public static Map<String, SourcePath> getTransitiveRustSharedLibraries(
+      CxxPlatform cxxPlatform,
+      Iterable<? extends BuildRule> inputs) throws NoSuchBuildTargetException {
+    ImmutableSortedMap.Builder<String, SourcePath> libs = ImmutableSortedMap.naturalOrder();
+
+    new AbstractBreadthFirstThrowingTraversal<BuildRule, NoSuchBuildTargetException>(inputs) {
+      private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
+
+      @Override
+      public Iterable<BuildRule> visit(BuildRule rule) throws NoSuchBuildTargetException {
+        ImmutableSet<BuildRule> deps = empty;
+        if (rule instanceof RustLinkable) {
+          deps = rule.getDeps();
+
+          RustLinkable rustLinkable = (RustLinkable) rule;
+
+          if (rustLinkable.getPreferredLinkage() != NativeLinkable.Linkage.STATIC) {
+            libs.putAll(rustLinkable.getRustSharedLibraries(cxxPlatform));
+          }
+        }
+        return deps;
+      }
+    }.start();
+
+    return libs.build();
   }
 }

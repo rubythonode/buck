@@ -21,11 +21,14 @@ import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.query.Query;
 import com.google.common.collect.ImmutableList;
 
+import java.util.Optional;
 
 public class HaskellBinaryBuilder
-    extends AbstractNodeBuilder<HaskellBinaryDescription.Arg, HaskellBinaryDescription> {
+    extends AbstractNodeBuilder<HaskellBinaryDescription.Arg, HaskellBinaryDescription, BuildRule> {
 
   public HaskellBinaryBuilder(
       BuildTarget target,
@@ -47,6 +50,11 @@ public class HaskellBinaryBuilder
 
   public HaskellBinaryBuilder setCompilerFlags(ImmutableList<String> flags) {
     arg.compilerFlags = flags;
+    return this;
+  }
+
+  public HaskellBinaryBuilder setDepQuery(Query depQuery) {
+    arg.depsQuery = Optional.of(depQuery);
     return this;
   }
 

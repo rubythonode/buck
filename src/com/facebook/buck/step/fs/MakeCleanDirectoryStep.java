@@ -43,7 +43,6 @@ public final class MakeCleanDirectoryStep extends CompositeStep {
         new RmStep(
             filesystem,
             pathRelativeToProjectRoot,
-            RmStep.Mode.FORCED,
             RmStep.Mode.RECURSIVE),
         new MkdirStep(filesystem, pathRelativeToProjectRoot)));
     this.pathRelativeToProjectRoot = pathRelativeToProjectRoot;
@@ -66,5 +65,10 @@ public final class MakeCleanDirectoryStep extends CompositeStep {
   @Override
   public int hashCode() {
     return Objects.hashCode(pathRelativeToProjectRoot);
+  }
+
+  @Override
+  public String toString() {
+    return "MakeCleanDirectoryStep: " + getPath();
   }
 }

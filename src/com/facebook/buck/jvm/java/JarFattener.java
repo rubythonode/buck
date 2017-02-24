@@ -22,7 +22,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.SourcePath;
@@ -67,8 +66,8 @@ public class JarFattener extends AbstractBuildRuleWithResolver implements Binary
   public static final ImmutableList<String> FAT_JAR_SRC_RESOURCES =
       ImmutableList.of(
           "com/facebook/buck/jvm/java/FatJar.java",
-          "com/facebook/buck/util/exportedfiles/Nullable.java",
-          "com/facebook/buck/util/exportedfiles/Preconditions.java"
+          "com/facebook/buck/util/liteinfersupport/Nullable.java",
+          "com/facebook/buck/util/liteinfersupport/Preconditions.java"
       );
   public static final String FAT_JAR_MAIN_SRC_RESOURCE =
       "com/facebook/buck/jvm/java/FatJarMain.java";
@@ -256,7 +255,7 @@ public class JarFattener extends AbstractBuildRuleWithResolver implements Binary
     return new CommandTool.Builder()
         .addArg(javaRuntimeLauncher.getCommand())
         .addArg("-jar")
-        .addArg(new SourcePathArg(getResolver(), new BuildTargetSourcePath(getBuildTarget())))
+        .addArg(new SourcePathArg(getResolver(), getSourcePathToOutput()))
         .build();
   }
 

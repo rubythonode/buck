@@ -1,7 +1,36 @@
+TYPES_SRCS = [
+  'AbstractClasspathMacro.java',
+  'AbstractExecutableMacro.java',
+  'AbstractLocationMacro.java',
+  'AbstractMavenCoordinatesMacro.java',
+  'AbstractQueryOutputsMacro.java',
+  'AbstractQueryTargetsMacro.java',
+  'AbstractStringWithMacros.java',
+  'BuildTargetMacro.java',
+  'Macro.java',
+  'QueryMacro.java',
+]
+java_immutables_library(
+  name = 'types',
+  immutable_types = [
+    'ClasspathMacro',
+    'ExecutableMacro',
+    'LocationMacro',
+    'MavenCoordinatesMacro',
+    'QueryTargetsMacros',
+    'QueryOutputsMacros',
+    'StringWithMacros',
+  ],
+  srcs = TYPES_SRCS,
+  autodeps = True,
+  visibility = ['PUBLIC'],
+)
+
 standard_java_library(
   immutable_types = [
     'MacroMatchResult',
   ],
+  srcs = glob(['*.java'], excludes=TYPES_SRCS),
   tests = [
     '//test/com/facebook/buck/rules/macros:macros',
   ],

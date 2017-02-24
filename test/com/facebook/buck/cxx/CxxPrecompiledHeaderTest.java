@@ -62,7 +62,6 @@ public class CxxPrecompiledHeaderTest {
         new SourcePathResolver(new SourcePathRuleFinder(resolver));
     CxxPrecompiledHeader precompiledHeader = new CxxPrecompiledHeader(
         params,
-        sourcePathResolver,
         Paths.get("foo.hash1.hash2.gch"),
         new PreprocessorDelegate(
             sourcePathResolver,
@@ -87,10 +86,8 @@ public class CxxPrecompiledHeaderTest {
         CxxSource.Type.C,
         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
         CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER);
-    BuildContext buildContext = BuildContext.builder()
-        .from(FakeBuildContext.NOOP_CONTEXT)
-        .setSourcePathResolver(sourcePathResolver)
-        .build();
+    resolver.addToIndex(precompiledHeader);
+    BuildContext buildContext = FakeBuildContext.withSourcePathResolver(sourcePathResolver);
     ImmutableList<Step> postBuildSteps = precompiledHeader.getBuildSteps(
         buildContext,
         new FakeBuildableContext());

@@ -35,6 +35,7 @@ import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -42,6 +43,9 @@ import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
+import com.facebook.buck.rules.keys.RuleKeyCacheScope;
+import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.TargetDevice;
@@ -50,8 +54,10 @@ import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.ListeningProcessExecutor;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessExecutorParams;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -519,77 +525,98 @@ public class TestCommand extends BuildCommand {
 
       CachingBuildEngineBuckConfig cachingBuildEngineBuckConfig =
           params.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
-      CachingBuildEngine cachingBuildEngine =
-          new CachingBuildEngine(
-              new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
-              pool.getExecutor(),
-              getArtifactFetchService(params, pool.getExecutor()),
-              new DefaultStepRunner(),
-              getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
-              cachingBuildEngineBuckConfig.getBuildDepFiles(),
-              cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
-              cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-              cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-              params.getObjectMapper(),
-              actionGraphAndResolver.getResolver(),
-              params.getBuckConfig().getKeySeed(),
-              cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo());
-      try (Build build = createBuild(
-          params.getBuckConfig(),
-          actionGraphAndResolver.getActionGraph(),
-          actionGraphAndResolver.getResolver(),
-          params.getCell(),
-          params.getAndroidPlatformTargetSupplier(),
-          cachingBuildEngine,
-          params.getArtifactCacheFactory().newInstance(),
-          params.getConsole(),
-          params.getBuckEventBus(),
-          getTargetDeviceOptional(),
-          params.getPersistentWorkerPools(),
-          params.getPlatform(),
-          params.getEnvironment(),
-          params.getObjectMapper(),
-          params.getClock(),
-          Optional.of(getAdbOptions(params.getBuckConfig())),
-          Optional.of(getTargetDeviceOptions()),
-          params.getExecutors())) {
-
-        // Build all of the test rules.
-        int exitCode = build.executeAndPrintFailuresToEventBus(
-            testRules,
-            isKeepGoing(),
-            params.getBuckEventBus(),
+      try (CommandThreadManager artifactFetchService =
+               getArtifactFetchService(
+                   params.getBuckConfig(),
+                   pool.getExecutor());
+           RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
+               getDefaultRuleKeyCacheScope(
+                   params,
+                   new RuleKeyCacheRecycler.SettingsAffectingCache(
+                       params.getBuckConfig().getKeySeed(),
+                       actionGraphAndResolver.getActionGraph()))) {
+        LocalCachingBuildEngineDelegate localCachingBuildEngineDelegate =
+            new LocalCachingBuildEngineDelegate(params.getFileHashCache());
+        CachingBuildEngine cachingBuildEngine =
+            new CachingBuildEngine(
+                new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
+                pool.getExecutor(),
+                artifactFetchService == null ?
+                    pool.getExecutor() :
+                    artifactFetchService.getExecutor(),
+                new DefaultStepRunner(),
+                getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
+                cachingBuildEngineBuckConfig.getBuildDepFiles(),
+                cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
+                cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
+                params.getObjectMapper(),
+                actionGraphAndResolver.getResolver(),
+                cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
+                new RuleKeyFactoryManager(
+                    params.getBuckConfig().getKeySeed(),
+                    localCachingBuildEngineDelegate.createFileHashCacheLoader()::getUnchecked,
+                    actionGraphAndResolver.getResolver(),
+                    cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
+                    ruleKeyCacheScope.getCache()));
+        try (Build build = createBuild(
+            params.getBuckConfig(),
+            actionGraphAndResolver.getActionGraph(),
+            actionGraphAndResolver.getResolver(),
+            params.getCell(),
+            params.getAndroidPlatformTargetSupplier(),
+            cachingBuildEngine,
+            params.getArtifactCacheFactory().newInstance(),
             params.getConsole(),
-            getPathToBuildReport(params.getBuckConfig()));
-        params.getBuckEventBus().post(BuildEvent.finished(started, exitCode));
-        if (exitCode != 0) {
-          return exitCode;
-        }
+            params.getBuckEventBus(),
+            getTargetDeviceOptional(),
+            params.getPersistentWorkerPools(),
+            params.getPlatform(),
+            params.getEnvironment(),
+            params.getObjectMapper(),
+            params.getClock(),
+            Optional.of(getAdbOptions(params.getBuckConfig())),
+            Optional.of(getTargetDeviceOptions()),
+            params.getExecutors())) {
 
-        // If the user requests that we build tests that we filter out, then we perform
-        // the filtering here, after we've done the build but before we run the tests.
-        if (isBuildFiltered(params.getBuckConfig())) {
-          testRules =
-              filterTestRules(
-                  params.getBuckConfig(),
-                  targetGraphAndBuildTargets.getBuildTargets(),
-                  testRules);
-        }
+          // Build all of the test rules.
+          int exitCode = build.executeAndPrintFailuresToEventBus(
+              RichStream.from(testRules)
+                  .map(TestRule::getBuildTarget)
+                  .collect(MoreCollectors.toImmutableList()),
+              isKeepGoing(),
+              params.getBuckEventBus(),
+              params.getConsole(),
+              getPathToBuildReport(params.getBuckConfig()));
+          params.getBuckEventBus().post(BuildEvent.finished(started, exitCode));
+          if (exitCode != 0) {
+            return exitCode;
+          }
 
-        // Once all of the rules are built, then run the tests.
-        Optional<ImmutableList<String>> externalTestRunner =
-            params.getBuckConfig().getExternalTestRunner();
-        if (externalTestRunner.isPresent()) {
-          SourcePathResolver pathResolver = new SourcePathResolver(
-              new SourcePathRuleFinder(actionGraphAndResolver.getResolver()));
-          return runTestsExternal(
-              params,
-              build,
-              externalTestRunner.get(),
-              testRules,
-              pathResolver);
+          // If the user requests that we build tests that we filter out, then we perform
+          // the filtering here, after we've done the build but before we run the tests.
+          if (isBuildFiltered(params.getBuckConfig())) {
+            testRules =
+                filterTestRules(
+                    params.getBuckConfig(),
+                    targetGraphAndBuildTargets.getBuildTargets(),
+                    testRules);
+          }
+
+          // Once all of the rules are built, then run the tests.
+          Optional<ImmutableList<String>> externalTestRunner =
+              params.getBuckConfig().getExternalTestRunner();
+          if (externalTestRunner.isPresent()) {
+            SourcePathResolver pathResolver = new SourcePathResolver(
+                new SourcePathRuleFinder(actionGraphAndResolver.getResolver()));
+            return runTestsExternal(
+                params,
+                build,
+                externalTestRunner.get(),
+                testRules,
+                pathResolver);
+          }
+          return runTestsInternal(params, cachingBuildEngine, build, testRules);
         }
-        return runTestsInternal(params, cachingBuildEngine, build, testRules);
       }
     }
   }

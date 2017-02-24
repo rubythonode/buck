@@ -19,14 +19,16 @@ package com.facebook.buck.cli;
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildExecutorArgs;
+import com.facebook.buck.distributed.DistBuildLogStateTracker;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.DistBuildState;
 import com.facebook.buck.distributed.FileContentsProviders;
 import com.facebook.buck.distributed.FrontendService;
-import com.facebook.buck.distributed.thrift.BuildId;
 import com.facebook.buck.distributed.thrift.BuildJobState;
+import com.facebook.buck.distributed.thrift.StampedeId;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.slb.ClientSideSlb;
@@ -36,6 +38,7 @@ import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.google.common.base.Preconditions;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Optional;
 
 import okhttp3.OkHttpClient;
@@ -50,6 +53,12 @@ public abstract class DistBuildFactory {
   public static DistBuildService newDistBuildService(CommandRunnerParams params) {
     return new DistBuildService(newFrontendService(params));
   }
+
+  public static DistBuildLogStateTracker newDistBuildLogStateTracker(
+      Path logDir, ProjectFilesystem fileSystem) {
+    return new DistBuildLogStateTracker(logDir, fileSystem);
+  }
+
 
   public static FrontendService newFrontendService(
       CommandRunnerParams params) {
@@ -74,7 +83,7 @@ public abstract class DistBuildFactory {
       DistBuildService service,
       DistBuildMode mode,
       int coordinatorPort,
-      Optional<BuildId> stampedeBuildId) throws IOException {
+      Optional<StampedeId> stampedeId) throws IOException {
     DistBuildState state = DistBuildState.load(
         Optional.of(params.getBuckConfig()),
         jobState,
@@ -94,8 +103,7 @@ public abstract class DistBuildFactory {
             .setBuckEventBus(params.getBuckEventBus())
             .setPlatform(params.getPlatform())
             .setClock(params.getClock())
-            .setArtifactCache(
-                distBuildArtifactCacheFactory.newInstance(true))
+            .setArtifactCache(distBuildArtifactCacheFactory.newInstance(true))
             .setState(state)
             .setObjectMapper(params.getObjectMapper())
             .setRootCell(params.getCell())
@@ -108,7 +116,8 @@ public abstract class DistBuildFactory {
             .setExecutors(params.getExecutors())
             .setDistBuildMode(mode)
             .setCoordinatorPort(coordinatorPort)
-            .setStampedeBuildId(stampedeBuildId.orElse(new BuildId().setId("LOCAL_FILE")))
+            .setStampedeId(stampedeId.orElse(new StampedeId().setId("LOCAL_FILE")))
+            .setVersionedTargetGraphCache(params.getVersionedTargetGraphCache())
             .build());
     return executor;
   }

@@ -21,9 +21,7 @@ import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsAmender;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -51,22 +49,19 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
       SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       JavacOptions javacOptions,
-      BuildTarget abiJar,
       ImmutableSortedSet<SourcePath> abiInputs,
       AndroidBuildConfig androidBuildConfig) {
     super(
         params,
         resolver,
         ruleFinder,
-        /* srcs */ ImmutableSortedSet.of(
-            new BuildTargetSourcePath(androidBuildConfig.getBuildTarget())),
+        /* srcs */ ImmutableSortedSet.of(androidBuildConfig.getSourcePathToOutput()),
         /* resources */ ImmutableSortedSet.of(),
         javacOptions.getGeneratedSourceFolderName(),
         /* proguardConfig */ Optional.empty(),
         /* postprocessClassesCommands */ ImmutableList.of(),
         /* exportedDeps */ ImmutableSortedSet.of(),
         /* providedDeps */ ImmutableSortedSet.of(),
-        abiJar,
         abiInputs,
         /* trackClassUsage */ javacOptions.trackClassUsage(),
         /* additionalClasspathEntries */ ImmutableSet.of(),

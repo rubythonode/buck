@@ -156,7 +156,7 @@ public class CxxLibraryTest {
 
     // Verify that the implemented BuildRule methods are effectively unused.
     assertEquals(ImmutableList.<Step>of(), cxxLibrary.getBuildSteps(null, null));
-    assertNull(cxxLibrary.getPathToOutput());
+    assertNull(cxxLibrary.getSourcePathToOutput());
   }
 
   @Test
@@ -200,7 +200,8 @@ public class CxxLibraryTest {
         /* linkWhole */ false,
         Optional.empty(),
         ImmutableSortedSet.of(),
-        /* isAsset */ false);
+        /* isAsset */ false,
+        true);
 
     NativeLinkableInput expectedSharedNativeLinkableInput =
         NativeLinkableInput.of(

@@ -19,14 +19,12 @@ package com.facebook.buck.go;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.HasTests;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.MetadataProvidingDescription;
@@ -80,8 +78,7 @@ public class GoLibraryDescription implements
 
     if (metadataClass.isAssignableFrom(GoLinkable.class)) {
       Preconditions.checkState(platform.isPresent());
-      SourcePath output = new BuildTargetSourcePath(
-          resolver.requireRule(buildTarget).getBuildTarget());
+      SourcePath output = resolver.requireRule(buildTarget).getSourcePathToOutput();
       return Optional.of(
           metadataClass.cast(
               GoLinkable.builder()
@@ -131,7 +128,7 @@ public class GoLibraryDescription implements
           args.assemblerFlags,
           platform.get(),
           FluentIterable.from(params.getDeclaredDeps().get())
-              .transform(HasBuildTarget::getBuildTarget)
+              .transform(BuildRule::getBuildTarget)
               .append(args.exportedDeps));
     }
 

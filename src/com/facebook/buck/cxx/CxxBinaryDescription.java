@@ -20,7 +20,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.MacroException;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -34,14 +33,13 @@ import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.rules.query.Query;
+import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
 import java.util.Optional;
@@ -151,6 +149,7 @@ public class CxxBinaryDescription implements
           params.withoutFlavor(CxxCompilationDatabase.COMPILATION_DATABASE);
       CxxLinkAndCompileRules cxxLinkAndCompileRules = CxxDescriptionEnhancer
           .createBuildRulesForCxxBinaryDescriptionArg(
+              targetGraph,
               paramsWithoutFlavor,
               resolver,
               cxxBuckConfig,
@@ -160,7 +159,6 @@ public class CxxBinaryDescription implements
               flavoredLinkerMapMode);
       return CxxCompilationDatabase.createCompilationDatabase(
           params,
-          pathResolver,
           cxxLinkAndCompileRules.compileRules);
     }
 
@@ -176,7 +174,6 @@ public class CxxBinaryDescription implements
       return CxxInferEnhancer.requireInferAnalyzeAndReportBuildRuleForCxxDescriptionArg(
           params,
           resolver,
-          pathResolver,
           cxxBuckConfig,
           cxxPlatform,
           args,
@@ -188,7 +185,6 @@ public class CxxBinaryDescription implements
       return CxxInferEnhancer.requireInferAnalyzeBuildRuleForCxxDescriptionArg(
           params,
           resolver,
-          pathResolver,
           cxxBuckConfig,
           cxxPlatform,
           args,
@@ -229,6 +225,7 @@ public class CxxBinaryDescription implements
 
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
+            targetGraph,
             params,
             resolver,
             cxxBuckConfig,
@@ -251,9 +248,10 @@ public class CxxBinaryDescription implements
     params = CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle);
     params = LinkerMapMode.restoreLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode);
     CxxBinary cxxBinary = new CxxBinary(
-        params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder)),
+        params
+            .copyWithDeps(() -> cxxLinkAndCompileRules.deps, params.getExtraDeps())
+            .appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder)),
         resolver,
-        pathResolver,
         ruleFinder,
         cxxLinkAndCompileRules.getBinaryRule(),
         cxxLinkAndCompileRules.executable,
@@ -269,18 +267,19 @@ public class CxxBinaryDescription implements
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
       Arg constructorArg) {
-    return findDepsForTargetFromConstructorArgs(
-        buildTarget,
-        cellRoots,
-        constructorArg.linkerFlags,
-        constructorArg.platformLinkerFlags.getValues());
+    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+
+    deps.addAll(findDepsForTargetFromConstructorArgs(buildTarget));
+
+    constructorArg.depsQuery.ifPresent(
+        depsQuery ->
+            QueryUtils.extractParseTimeTargets(buildTarget, cellRoots, depsQuery)
+                .forEach(deps::add));
+
+    return deps.build();
   }
 
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
-      BuildTarget buildTarget,
-      CellPathResolver cellRoots,
-      ImmutableList<String> linkerFlags,
-      ImmutableList<ImmutableList<String>> platformLinkerFlags) {
+  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(BuildTarget buildTarget) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 
     // Get any parse time deps from the C/C++ platforms.
@@ -288,23 +287,6 @@ public class CxxBinaryDescription implements
         CxxPlatforms.getParseTimeDeps(
             cxxPlatforms
                 .getValue(buildTarget.getFlavors()).orElse(defaultCxxPlatform)));
-
-    ImmutableList<ImmutableList<String>> macroStrings =
-        ImmutableList.<ImmutableList<String>>builder()
-            .add(linkerFlags)
-            .addAll(platformLinkerFlags)
-            .build();
-    for (String macroString : Iterables.concat(macroStrings)) {
-      try {
-        deps.addAll(
-            CxxDescriptionEnhancer.MACRO_HANDLER.extractParseTimeDeps(
-                buildTarget,
-                cellRoots,
-                macroString));
-      } catch (MacroException e) {
-        throw new HumanReadableException(e, "%s: %s", buildTarget, e.getMessage());
-      }
-    }
 
     return deps.build();
   }
@@ -411,6 +393,7 @@ public class CxxBinaryDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends LinkableCxxConstructorArg {
+    public Optional<Query> depsQuery = Optional.empty();
   }
 
 }

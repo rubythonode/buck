@@ -1,7 +1,7 @@
 {
   "apkmodule" : {
     "deps" : [
-      "//third-party/java/immutables:processor"
+      "//third-party/java/immutables:immutables"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/graph:graph",
@@ -29,7 +29,8 @@
       "//src/com/facebook/buck/log:log",
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:util",
-      "//src/com/facebook/buck/util/concurrent:concurrent"
+      "//src/com/facebook/buck/util/concurrent:concurrent",
+      "//third-party/java/immutables:immutables"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/annotations:annotations",
@@ -38,6 +39,7 @@
       "//src/com/facebook/buck/rules:build_rule",
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/util:process_executor",
+      "//src/com/facebook/buck/util/immutables:immutables",
       "//third-party/java/ddmlib:ddmlib",
       "//third-party/java/guava:guava",
       "//third-party/java/jsr:jsr305"
@@ -47,7 +49,7 @@
     "deps" : [
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:util",
-      "//third-party/java/immutables:processor"
+      "//third-party/java/immutables:immutables"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/android:apkmodule",
@@ -83,7 +85,7 @@
       "//src/com/facebook/buck/zip:stream",
       "//third-party/java/aosp:aosp",
       "//third-party/java/ddmlib:ddmlib",
-      "//third-party/java/immutables:processor",
+      "//third-party/java/immutables:immutables",
       "//third-party/java/jackson:jackson-core",
       "//third-party/java/jackson:jackson-databind"
     ],
@@ -113,6 +115,7 @@
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/rules/keys:keys",
       "//src/com/facebook/buck/rules/macros:macros",
+      "//src/com/facebook/buck/rules/query:types",
       "//src/com/facebook/buck/shell:rules",
       "//src/com/facebook/buck/shell:steps",
       "//src/com/facebook/buck/step:step",
@@ -157,7 +160,7 @@
       "//src/com/facebook/buck/zip:stream",
       "//third-party/java/android:sdklib",
       "//third-party/java/dx:dx",
-      "//third-party/java/immutables:processor",
+      "//third-party/java/immutables:immutables",
       "//third-party/java/infer-annotations:infer-annotations",
       "//third-party/java/jackson:jackson-databind"
     ],
@@ -196,7 +199,6 @@
       "//src/com/facebook/buck/util/environment:platform"
     ],
     "exported_deps" : [
-      "//src/com/facebook/buck/io:io",
       "//third-party/java/guava:guava"
     ]
   }

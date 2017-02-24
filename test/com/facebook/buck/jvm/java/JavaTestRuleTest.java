@@ -16,13 +16,13 @@
 
 package com.facebook.buck.jvm.java;
 
+import static org.easymock.EasyMock.createMock;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -47,7 +47,10 @@ public class JavaTestRuleTest {
     ImmutableList<String> vmArgs = ImmutableList.of("--one", "--two", "--three");
     JavaTest rule = newRule(vmArgs);
 
-    ImmutableList<String> amended = rule.amendVmArgs(vmArgs, Optional.empty());
+    ImmutableList<String> amended = rule.amendVmArgs(
+        vmArgs,
+        createMock(SourcePathResolver.class),
+        Optional.empty());
 
     MoreAsserts.assertListEquals(vmArgs, amended);
   }
@@ -58,7 +61,10 @@ public class JavaTestRuleTest {
     JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.EMULATOR, null);
-    ImmutableList<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
+    ImmutableList<String> amended = rule.amendVmArgs(
+        vmArgs,
+        createMock(SourcePathResolver.class),
+        Optional.of(device));
 
     ImmutableList<String> expected = ImmutableList.of("--one", "-Dbuck.device=emulator");
     assertEquals(expected, amended);
@@ -70,7 +76,10 @@ public class JavaTestRuleTest {
     JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.REAL_DEVICE, null);
-    ImmutableList<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
+    ImmutableList<String> amended = rule.amendVmArgs(
+        vmArgs,
+        createMock(SourcePathResolver.class),
+        Optional.of(device));
 
     ImmutableList<String> expected = ImmutableList.of("--one", "-Dbuck.device=device");
     assertEquals(expected, amended);
@@ -82,7 +91,10 @@ public class JavaTestRuleTest {
     JavaTest rule = newRule(vmArgs);
 
     TargetDevice device = new TargetDevice(TargetDevice.Type.EMULATOR, "123");
-    List<String> amended = rule.amendVmArgs(vmArgs, Optional.of(device));
+    List<String> amended = rule.amendVmArgs(
+        vmArgs,
+        createMock(SourcePathResolver.class),
+        Optional.of(device));
 
     List<String> expected = ImmutableList.of(
         "--one", "-Dbuck.device=emulator", "-Dbuck.device.id=123");
@@ -109,7 +121,7 @@ public class JavaTestRuleTest {
                 ImmutableSortedSet.of(transitiveDep)));
 
     JavaTest rule =
-        (JavaTest) JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"))
+        JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"))
             .addSrc(Paths.get("ExampleTest.java"))
             .addDep(firstOrderDep.getBuildTarget())
             .build(resolver);
@@ -117,13 +129,13 @@ public class JavaTestRuleTest {
     assertThat(
         rule.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
         Matchers.hasItems(
-            new BuildTargetSourcePath(rule.getCompiledTestsLibrary().getBuildTarget()),
-            new BuildTargetSourcePath(firstOrderDep.getBuildTarget()),
-            new BuildTargetSourcePath(transitiveDep.getBuildTarget())));
+            rule.getCompiledTestsLibrary().getBuildTarget(),
+            firstOrderDep.getBuildTarget(),
+            transitiveDep.getBuildTarget()));
   }
 
   private JavaTest newRule(ImmutableList<String> vmArgs) throws NoSuchBuildTargetException {
-    return (JavaTest) JavaTestBuilder
+    return JavaTestBuilder
         .createBuilder(BuildTargetFactory.newInstance("//example:test"))
         .setVmArgs(vmArgs)
         .addSrc(Paths.get("ExampleTest.java"))

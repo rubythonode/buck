@@ -48,6 +48,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -93,14 +94,14 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public Set<QueryTarget> getTargetsMatchingPattern(
+  public ImmutableSet<QueryTarget> getTargetsMatchingPattern(
       String pattern,
       ListeningExecutorService executor) throws QueryException, InterruptedException {
     if ("$declared_deps".equals(pattern)) {
       return declaredDeps
           .stream()
           .map(QueryBuildTarget::of)
-          .collect(Collectors.toSet());
+          .collect(MoreCollectors.toImmutableSet());
     }
     try {
       BuildTarget buildTarget = BuildTargetParser.INSTANCE.parse(pattern, context, cellNames);
@@ -111,7 +112,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public Set<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets)
+  public ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets)
       throws QueryException, InterruptedException {
     ImmutableSet.Builder<QueryTarget> builder = ImmutableSet.builder();
     for (QueryTarget target : targets) {
@@ -123,6 +124,22 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
       builder.addAll(deps);
     }
     return builder.build();
+  }
+
+  @Override
+  public void forEachFwdDep(
+      Iterable<QueryTarget> targets,
+      Consumer<? super QueryTarget> action)
+      throws QueryException, InterruptedException {
+    for (QueryTarget target : targets) {
+      TargetNode<?, ?> node = getNode(target);
+      for (BuildTarget dep : node.getDeclaredDeps()) {
+        action.accept(QueryBuildTarget.of(dep));
+      }
+      for (BuildTarget dep : node.getExtraDeps()) {
+        action.accept(QueryBuildTarget.of(dep));
+      }
+    }
   }
 
   @Override
@@ -217,6 +234,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
         new AttrFilterFunction(),
         new ClasspathFunction(),
         new DepsFunction(),
+        new DepsFunction.FirstOrderDepsFunction(),
         new KindFunction(),
         new FilterFunction()
     );

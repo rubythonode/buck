@@ -54,7 +54,6 @@ public class CxxBinaryTest {
         ruleResolver.addToIndex(
             new CxxLink(
                 linkParams,
-                pathResolver,
                 CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(ruleResolver),
                 bin,
                 ImmutableList.of(),
@@ -66,7 +65,6 @@ public class CxxBinaryTest {
             new CxxBinary(
                 params.appendExtraDeps(ImmutableSortedSet.<BuildRule>of(cxxLink)),
                 ruleResolver,
-                pathResolver,
                 ruleFinder,
                 cxxLink,
                 new CommandTool.Builder()

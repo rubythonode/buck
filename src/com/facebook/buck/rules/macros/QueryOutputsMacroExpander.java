@@ -24,8 +24,10 @@ import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePaths;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Preconditions;
@@ -47,45 +49,52 @@ import java.util.stream.Collectors;
  *   '$(query_outputs "attrfilter(annotation_processors, com.foo.Processor, deps(:app))")'
  * </pre>
  */
-public class QueryOutputsMacroExpander extends QueryMacroExpander {
+public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMacro> {
 
   public QueryOutputsMacroExpander(Optional<TargetGraph> targetGraph) {
     super(targetGraph);
   }
 
   @Override
-  public String expand(
+  public Class<QueryOutputsMacro> getInputClass() {
+    return QueryOutputsMacro.class;
+  }
+
+  @Override
+  QueryOutputsMacro fromQuery(Query query) {
+    return QueryOutputsMacro.of(query);
+  }
+
+  @Override
+  public String expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      ImmutableList<String> input) throws MacroException {
-    if (input.isEmpty()) {
-      throw new MacroException("One quoted query expression is expected");
-    }
-    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.get(0));
+      QueryOutputsMacro input)
+      throws MacroException {
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.getQuery().getQuery());
     return resolveQuery(target, cellNames, resolver, queryExpression)
         .map(queryTarget -> {
           Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
           return resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
         })
-        .map(rule -> rule.getProjectFilesystem().resolve(rule.getPathToOutput()))
+        .map(BuildRule::getSourcePathToOutput)
         .filter(Objects::nonNull)
+        .map(pathResolver::getAbsolutePath)
         .map(Path::toString)
         .sorted()
         .collect(Collectors.joining(" "));
   }
 
   @Override
-  public Object extractRuleKeyAppendables(
+  public Object extractRuleKeyAppendablesFrom(
       BuildTarget target,
       CellPathResolver cellNames,
       final BuildRuleResolver resolver,
-      ImmutableList<String> input)
+      QueryOutputsMacro input)
       throws MacroException {
-    if (input.isEmpty()) {
-      throw new MacroException("One quoted query expression is expected");
-    }
-    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.get(0));
+    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.getQuery().getQuery());
 
     // Return a list of SourcePaths to the outputs of our query results. This enables input-based
     // rule key hits.
@@ -99,22 +108,19 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander {
                 new MacroException("Error extracting rule key appendables", e));
           }
         })
-        .filter(rule -> rule.getPathToOutput() != null)
-        .map(rule -> SourcePaths.getToBuildTargetSourcePath().apply(rule))
+        .map(BuildRule::getSourcePathToOutput)
+        .filter(Objects::nonNull)
         .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
   }
 
   @Override
-  public ImmutableList<BuildRule> extractBuildTimeDeps(
+  public ImmutableList<BuildRule> extractBuildTimeDepsFrom(
       BuildTarget target,
       CellPathResolver cellNames,
       final BuildRuleResolver resolver,
-      ImmutableList<String> input)
+      QueryOutputsMacro input)
       throws MacroException {
-    if (input.isEmpty()) {
-      throw new MacroException("One quoted query expression is expected with optional flags");
-    }
-    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.get(0));
+    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.getQuery().getQuery());
     return ImmutableList.copyOf(resolveQuery(target, cellNames, resolver, queryExpression)
         .map(queryTarget -> {
           Preconditions.checkState(queryTarget instanceof QueryBuildTarget);

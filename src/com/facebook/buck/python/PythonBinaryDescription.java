@@ -29,10 +29,8 @@ import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
@@ -42,7 +40,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
@@ -106,7 +103,7 @@ public class PythonBinaryDescription implements
             params.getProjectFilesystem(),
             params.getBuildTarget(),
             "%s/__init__.py");
-    resolver.addToIndex(
+    WriteFile rule = resolver.addToIndex(
         new WriteFile(
             params.copyWithChanges(
                 emptyInitTarget,
@@ -115,7 +112,7 @@ public class PythonBinaryDescription implements
             "",
             emptyInitPath,
             /* executable */ false));
-    return new BuildTargetSourcePath(emptyInitTarget);
+    return rule.getSourcePathToOutput();
   }
 
   public static ImmutableMap<Path, SourcePath> addMissingInitModules(
@@ -146,6 +143,7 @@ public class PythonBinaryDescription implements
   private PythonInPlaceBinary createInPlaceBinaryRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
@@ -182,21 +180,23 @@ public class PythonBinaryDescription implements
                     .putAll(components.getModules())
                     .putAll(components.getResources())
                     .putAll(components.getNativeLibraries())
-                    .build()));
+                    .build(),
+                ruleFinder));
 
-    return new PythonInPlaceBinary(
+    return PythonInPlaceBinary.from(
         params,
-        pathResolver,
         resolver,
-        pythonPlatform,
+        pathResolver,
         cxxPlatform,
-        linkTree,
+        pythonPlatform,
         mainModule,
         components,
-        pythonPlatform.getEnvironment(),
         extension.orElse(pythonBuckConfig.getPexExtension()),
         preloadLibraries,
-        pythonBuckConfig.legacyOutputPath());
+        pythonBuckConfig.legacyOutputPath(),
+        ruleFinder,
+        linkTree,
+        pythonPlatform.getEnvironment());
   }
 
   PythonBinary createPackageRule(
@@ -219,6 +219,7 @@ public class PythonBinaryDescription implements
         return createInPlaceBinaryRule(
             params,
             resolver,
+            ruleFinder,
             pathResolver,
             pythonPlatform,
             cxxPlatform,
@@ -228,19 +229,12 @@ public class PythonBinaryDescription implements
             preloadLibraries);
 
       case STANDALONE:
-        ImmutableSortedSet<BuildRule> componentDeps =
-            PythonUtil.getDepsFromComponents(ruleFinder, components);
-        Tool pexTool = pythonBuckConfig.getPexTool(resolver);
-        return new PythonPackagedBinary(
-            params.appendExtraDeps(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(componentDeps)
-                    .addAll(pexTool.getDeps(ruleFinder))
-                    .build()),
+        return PythonPackagedBinary.from(
+            params,
             pathResolver,
             ruleFinder,
             pythonPlatform,
-            pexTool,
+            pythonBuckConfig.getPexTool(resolver),
             buildArgs,
             pythonBuckConfig.getPexExecutor(resolver).orElse(pythonPlatform.getEnvironment()),
             extension.orElse(pythonBuckConfig.getPexExtension()),

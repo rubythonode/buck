@@ -201,7 +201,7 @@ public class JavacStep implements Step {
         javacExecutionContext,
         invokingRule,
         getOptions(context, declaredClasspathEntries),
-        javacOptions.getSafeAnnotationProcessors(),
+        javacOptions.getAnnotationProcessingParams().getAnnotationProcessors(filesystem, resolver),
         javaSourceFilePaths,
         pathToSrcsList,
         workingDirectory,
@@ -287,11 +287,9 @@ public class JavacStep implements Step {
 
   private ImmutableList<Path> getAbsolutePathsForJavacInputs(Javac javac) {
     return javac.getInputs().stream().flatMap(input -> {
-      com.google.common.base.Optional<BuildRule> rule =
-          com.google.common.base.Optional.fromNullable(
-              ruleFinder.getRule(input).orElse(null));
-      if (rule instanceof JavaLibrary) {
-        return ((JavaLibrary) rule).getTransitiveClasspaths().stream()
+      Optional<BuildRule> rule = ruleFinder.getRule(input);
+      if (rule.isPresent() && rule.get() instanceof JavaLibrary) {
+        return ((JavaLibrary) rule.get()).getTransitiveClasspaths().stream()
             .map(resolver::getAbsolutePath);
       } else {
         return ImmutableSet.of(resolver.getAbsolutePath(input)).stream();
@@ -383,7 +381,7 @@ public class JavacStep implements Step {
             }
           },
           pathResolver,
-          filesystem::resolve);
+          filesystem);
 
     // verbose flag, if appropriate.
     if (context.getVerbosity().shouldUseVerbosityFlagIfAvailable()) {

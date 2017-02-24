@@ -26,7 +26,6 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
@@ -87,6 +86,7 @@ public class CxxCompilationDatabaseTest {
         ImmutableMap.of(),
         HeaderVisibility.PRIVATE,
         true);
+    testBuildRuleResolver.addToIndex(privateSymlinkTree);
     HeaderSymlinkTree exportedSymlinkTree = CxxDescriptionEnhancer.createHeaderSymlinkTree(
         testBuildRuleParams,
         testBuildRuleResolver,
@@ -94,6 +94,7 @@ public class CxxCompilationDatabaseTest {
         ImmutableMap.of(),
         HeaderVisibility.PUBLIC,
         true);
+    testBuildRuleResolver.addToIndex(exportedSymlinkTree);
 
     BuildTarget compileTarget = BuildTarget
         .builder(testBuildRuleParams.getBuildTarget().getUnflavoredBuildTarget())
@@ -116,10 +117,9 @@ public class CxxCompilationDatabaseTest {
         .setProjectFilesystem(filesystem)
         .setDeclaredDeps(ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree))
         .build();
-    rules.add(
+    rules.add(testBuildRuleResolver.addToIndex(
         CxxPreprocessAndCompile.preprocessAndCompile(
             compileBuildRuleParams,
-                testSourcePathResolver,
                 new PreprocessorDelegate(
                     testSourcePathResolver,
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
@@ -151,18 +151,18 @@ public class CxxCompilationDatabaseTest {
                 Optional.empty(),
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
-                Optional.empty()));
+                Optional.empty())));
 
     CxxCompilationDatabase compilationDatabase = CxxCompilationDatabase.createCompilationDatabase(
         testBuildRuleParams,
-        testSourcePathResolver,
         rules.build());
+    testBuildRuleResolver.addToIndex(compilationDatabase);
 
     assertThat(
         compilationDatabase.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
         Matchers.contains(
-            new BuildTargetSourcePath(exportedSymlinkTree.getBuildTarget()),
-            new BuildTargetSourcePath(privateSymlinkTree.getBuildTarget())));
+            exportedSymlinkTree.getBuildTarget(),
+            privateSymlinkTree.getBuildTarget()));
 
     assertEquals(
         "getPathToOutput() should be a function of the build target.",
@@ -171,7 +171,7 @@ public class CxxCompilationDatabaseTest {
 
     List<Step> buildSteps =
         compilationDatabase.getBuildSteps(
-            FakeBuildContext.NOOP_CONTEXT,
+            FakeBuildContext.withSourcePathResolver(testSourcePathResolver),
             new FakeBuildableContext());
     assertEquals(2, buildSteps.size());
     assertTrue(buildSteps.get(0) instanceof MkdirStep);

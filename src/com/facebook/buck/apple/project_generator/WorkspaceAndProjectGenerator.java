@@ -36,7 +36,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.Cell;
@@ -236,7 +235,7 @@ public class WorkspaceAndProjectGenerator {
         Stream.concat(
             schemeNameToSrcTargetNode.values().stream().flatMap(Optionals::toStream),
             buildForTestNodes.values().stream())
-            .map(HasBuildTarget::getBuildTarget)
+            .map(TargetNode::getBuildTarget)
             .collect(MoreCollectors.toImmutableSet());
     ImmutableMultimap.Builder<BuildTarget, PBXTarget> buildTargetToPbxTargetMapBuilder =
         ImmutableMultimap.builder();
@@ -253,21 +252,27 @@ public class WorkspaceAndProjectGenerator {
         buildTargetToPbxTargetMapBuilder,
         targetToProjectPathMapBuilder,
         targetToBuildWithBuck);
-    final Multimap<BuildTarget, PBXTarget> buildTargetToTarget =
-        buildTargetToPbxTargetMapBuilder.build();
 
-    writeWorkspaceSchemes(
-        workspaceName,
-        outputDirectory,
-        schemeConfigs,
-        schemeNameToSrcTargetNode,
-        buildForTestNodes,
-        tests,
-        targetToProjectPathMapBuilder.build(),
-        input -> buildTargetToTarget.get(input.getBuildTarget()),
-        getTargetNodeToPBXTargetTransformFunction(buildTargetToTarget, buildWithBuck));
+    if (projectGeneratorOptions.contains(
+        ProjectGenerator.Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY)) {
+      return workspaceGenerator.getWorkspaceDir();
+    } else {
+      final Multimap<BuildTarget, PBXTarget> buildTargetToTarget =
+          buildTargetToPbxTargetMapBuilder.build();
 
-    return workspaceGenerator.writeWorkspace();
+      writeWorkspaceSchemes(
+          workspaceName,
+          outputDirectory,
+          schemeConfigs,
+          schemeNameToSrcTargetNode,
+          buildForTestNodes,
+          tests,
+          targetToProjectPathMapBuilder.build(),
+          input -> buildTargetToTarget.get(input.getBuildTarget()),
+          getTargetNodeToPBXTargetTransformFunction(buildTargetToTarget, buildWithBuck));
+
+      return workspaceGenerator.writeWorkspace();
+    }
   }
 
   private void generateProjects(
@@ -369,6 +374,8 @@ public class WorkspaceAndProjectGenerator {
           continue;
         }
 
+        final boolean isMainProject = workspaceArguments.srcTarget.isPresent() &&
+            rules.contains(workspaceArguments.srcTarget.get());
         projectGeneratorFutures.add(
             listeningExecutorService.submit(
                 () -> {
@@ -377,7 +384,8 @@ public class WorkspaceAndProjectGenerator {
                         targetToBuildWithBuck,
                         projectCell,
                         projectDirectory,
-                        rules);
+                        rules,
+                        isMainProject);
                   // convert the projectPath to relative to the target cell here
                   result = GenerationResult.of(
                       relativeTargetCell.resolve(result.getProjectPath()),
@@ -393,8 +401,8 @@ public class WorkspaceAndProjectGenerator {
     try {
       generationResults = Futures.allAsList(projectGeneratorFutures).get();
     } catch (ExecutionException e) {
-      Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
-      Throwables.propagateIfPossible(e.getCause());
+      Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
+      Throwables.throwIfUnchecked(e.getCause());
       throw new IllegalStateException("Unexpected exception: ", e);
     }
     for (GenerationResult result : generationResults) {
@@ -425,7 +433,8 @@ public class WorkspaceAndProjectGenerator {
       Optional<BuildTarget> targetToBuildWithBuck,
       Cell projectCell,
       Path projectDirectory,
-      final ImmutableSet<BuildTarget> rules) throws IOException {
+      final ImmutableSet<BuildTarget> rules,
+      boolean isMainProject) throws IOException {
     boolean shouldGenerateProjects = false;
     ProjectGenerator generator;
     synchronized (projectGenerators) {
@@ -460,6 +469,8 @@ public class WorkspaceAndProjectGenerator {
                     ? Optional.of(input)
                     : Optional.empty()),
             buildWithBuckFlags,
+            isMainProject,
+            workspaceArguments.srcTarget,
             focusModules,
             executableFinder,
             environment,
@@ -514,6 +525,8 @@ public class WorkspaceAndProjectGenerator {
         projectGeneratorOptions,
         targetToBuildWithBuck,
         buildWithBuckFlags,
+        true,
+        workspaceArguments.srcTarget,
         focusModules,
         executableFinder,
         environment,
@@ -613,7 +626,7 @@ public class WorkspaceAndProjectGenerator {
                   projectGraph,
                   Optional.of(dependenciesCache),
                   projectGraph.get(
-                      schemeArguments.srcTarget.get().getBuildTarget())),
+                      schemeArguments.srcTarget.get())),
               Optional::of));
     } else {
       schemeNameToSrcTargetNodeBuilder.put(

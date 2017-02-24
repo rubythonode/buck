@@ -66,7 +66,7 @@ public class AndroidInstrumentationApkTest {
       public ImmutableSet<SourcePath> getTransitiveClasspaths() {
         return ImmutableSet.of(
             new BuildTargetSourcePath(javaLibrary1Target),
-            new BuildTargetSourcePath(getBuildTarget(), getPathToOutput()));
+            getSourcePathToOutput());
       }
     };
 
@@ -81,7 +81,7 @@ public class AndroidInstrumentationApkTest {
       public ImmutableSet<SourcePath> getTransitiveClasspaths() {
         return ImmutableSet.of(
             new BuildTargetSourcePath(javaLibrary3Target),
-            new BuildTargetSourcePath(getBuildTarget(), getPathToOutput()));
+            getSourcePathToOutput());
       }
     };
 
@@ -106,7 +106,7 @@ public class AndroidInstrumentationApkTest {
         .setManifest(new FakeSourcePath("apps/AndroidManifest.xml"))
         .setKeystore(keystore.getBuildTarget())
         .setOriginalDeps(originalDepsTargets);
-    AndroidBinary androidBinary = (AndroidBinary) androidBinaryBuilder.build(ruleResolver);
+    AndroidBinary androidBinary = androidBinaryBuilder.build(ruleResolver);
 
     // AndroidInstrumentationApk transitively depends on :lib1, :lib2, :lib3, and :lib4.
     ImmutableSortedSet<BuildTarget> apkOriginalDepsTargets = ImmutableSortedSet.of(

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java.abi;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.Sets;
@@ -27,18 +28,20 @@ import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.TypePath;
 
-import java.util.SortedSet;
+import java.util.Set;
 
 import javax.annotation.Nullable;
 
 class ClassMirror extends ClassVisitor implements Comparable<ClassMirror> {
 
   private final String fileName;
-  private final SortedSet<AnnotationMirror> annotations;
-  private final SortedSet<FieldMirror> fields;
-  private final SortedSet<InnerClass> innerClasses;
-  private final SortedSet<MethodMirror> methods;
+  private final Set<AnnotationMirror> annotations;
+  private final Set<TypeAnnotationMirror> typeAnnotations;
+  private final Set<FieldMirror> fields;
+  private final Set<InnerClass> innerClasses;
+  private final Set<MethodMirror> methods;
   @Nullable
   private OuterClass outerClass;
   private int version;
@@ -56,10 +59,11 @@ class ClassMirror extends ClassVisitor implements Comparable<ClassMirror> {
     super(Opcodes.ASM5);
 
     this.fileName = name;
-    this.annotations = Sets.newTreeSet();
-    this.fields = Sets.newTreeSet();
-    this.innerClasses = Sets.newTreeSet();
-    this.methods = Sets.newTreeSet();
+    this.annotations = Sets.newLinkedHashSet();
+    this.typeAnnotations = Sets.newLinkedHashSet();
+    this.fields = Sets.newLinkedHashSet();
+    this.innerClasses = Sets.newLinkedHashSet();
+    this.methods = Sets.newLinkedHashSet();
   }
 
   @Override
@@ -76,16 +80,34 @@ class ClassMirror extends ClassVisitor implements Comparable<ClassMirror> {
     this.signature = signature;
     this.interfaces = interfaces;
     this.superName = superName;
+    super.visit(version, access, name, signature, superName, interfaces);
   }
 
   @Override
   public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
-    AnnotationMirror mirror = new AnnotationMirror(desc, visible);
+    AnnotationMirror mirror = new AnnotationMirror(
+        desc,
+        visible,
+        super.visitAnnotation(desc, visible));
     annotations.add(mirror);
     return mirror;
   }
 
   @Override
+  public AnnotationVisitor visitTypeAnnotation(
+      int typeRef, TypePath typePath, String desc, boolean visible) {
+    TypeAnnotationMirror mirror = new TypeAnnotationMirror(
+        typeRef,
+        typePath,
+        desc,
+        visible,
+        super.visitTypeAnnotation(typeRef, typePath, desc, visible));
+    typeAnnotations.add(mirror);
+    return mirror;
+  }
+
+  @Override
+  @Nullable
   public FieldVisitor visitField(
       int access,
       String name,
@@ -93,20 +115,32 @@ class ClassMirror extends ClassVisitor implements Comparable<ClassMirror> {
       String signature,
       Object value) {
     if ((access & Opcodes.ACC_PRIVATE) > 0) {
-      return super.visitField(access, name, desc, signature, value);
+      return null;
     }
 
-    FieldMirror mirror = new FieldMirror(access, name, desc, signature, value);
+    FieldMirror mirror = new FieldMirror(
+        access,
+        name,
+        desc,
+        signature,
+        value,
+        super.visitField(access, name, desc, signature, value));
     fields.add(mirror);
     return mirror;
   }
 
   @Override
+  @Nullable
   public MethodVisitor visitMethod(
       int access, String name, String desc, String signature, String[] exceptions) {
 
-    if ((access & Opcodes.ACC_PRIVATE) > 0) {
-      return super.visitMethod(access, name, desc, signature, exceptions);
+    // Per JVMS8 2.9, "Class and interface initialization methods are invoked
+    // implicitly by the Java Virtual Machine; they are never invoked directly from any
+    // Java Virtual Machine instruction, but are invoked only indirectly as part of the class
+    // initialization process." Thus we don't need to emit a stub of <clinit>.
+    if (((access & Opcodes.ACC_PRIVATE) > 0) ||
+        (name.equals("<clinit>") && (access & Opcodes.ACC_STATIC) > 0)) {
+      return null;
     }
 
     // Bridge methods are created by the compiler, and don't appear in source. It would be nice to
@@ -119,7 +153,13 @@ class ClassMirror extends ClassVisitor implements Comparable<ClassMirror> {
     // section 4.7.8 of the JVM spec, which are "<init>" and "Enum.valueOf()" and "Enum.values".
     // None of these are actually harmful to the ABI, so we allow synthetic methods through.
     // http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.7.8
-    MethodMirror mirror = new MethodMirror(access, name, desc, signature, exceptions);
+    MethodMirror mirror = new MethodMirror(
+        access,
+        name,
+        desc,
+        signature,
+        exceptions,
+        super.visitMethod(access, name, desc, signature, exceptions));
     methods.add(mirror);
 
     return mirror;
@@ -137,8 +177,16 @@ class ClassMirror extends ClassVisitor implements Comparable<ClassMirror> {
       return;
     }
 
-    innerClasses.add(new InnerClass(name, outerName, innerName, access));
-    super.visitInnerClass(name, outerName, innerName, access);
+    String currentClassName = Preconditions.checkNotNull(this.name);
+    if (currentClassName.equals(name) || currentClassName.equals(outerName)) {
+      // InnerClasses attributes are normally present for any member class (of any type) that is
+      // referenced from code in this class file. However, for stubbing purposes we need only
+      // include InnerClasses attributes for the class itself (if it is a member class, so that
+      // the compiler can know that), and for the member classes of this class (so that the
+      // compiler knows to go looking for them). All of the other ones are only needed at runtime.
+      innerClasses.add(new InnerClass(name, outerName, innerName, access));
+      super.visitInnerClass(name, outerName, innerName, access);
+    }
   }
 
   @Override
@@ -148,6 +196,20 @@ class ClassMirror extends ClassVisitor implements Comparable<ClassMirror> {
     }
 
     return fileName.compareTo(o.fileName);
+  }
+
+  public boolean isAnonymousOrLocalClass() {
+    if (outerClass == null) {
+      return false;
+    }
+
+    for (InnerClass innerClass : innerClasses) {
+      if (innerClass.name.equals(name) && innerClass.outerName == null) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   public ByteSource getStubClassBytes() {
@@ -164,6 +226,10 @@ class ClassMirror extends ClassVisitor implements Comparable<ClassMirror> {
 
     for (AnnotationMirror annotation : annotations) {
       annotation.appendTo(writer);
+    }
+
+    for (TypeAnnotationMirror typeAnnotation : typeAnnotations) {
+      typeAnnotation.appendTo(writer);
     }
 
     for (FieldMirror field : fields) {

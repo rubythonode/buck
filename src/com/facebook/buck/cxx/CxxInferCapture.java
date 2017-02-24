@@ -17,15 +17,13 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -36,7 +34,6 @@ import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 
 import java.io.IOException;
@@ -48,8 +45,8 @@ import java.util.function.Predicate;
  * Generate the CFG for a source file
  */
 public class CxxInferCapture
-    extends AbstractBuildRuleWithResolver
-    implements RuleKeyAppendable, SupportsDependencyFileRuleKey {
+    extends AbstractBuildRule
+    implements SupportsDependencyFileRuleKey {
 
   @AddToRuleKey
   private final InferBuckConfig inferConfig;
@@ -68,7 +65,6 @@ public class CxxInferCapture
 
   CxxInferCapture(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver pathResolver,
       CxxToolFlags preprocessorFlags,
       CxxToolFlags compilerFlags,
       SourcePath input,
@@ -77,7 +73,7 @@ public class CxxInferCapture
       PreprocessorDelegate preprocessorDelegate,
       InferBuckConfig inferConfig,
       DebugPathSanitizer sanitizer) {
-    super(buildRuleParams, pathResolver);
+    super(buildRuleParams);
     this.preprocessorFlags = preprocessorFlags;
     this.compilerFlags = compilerFlags;
     this.input = input;
@@ -111,7 +107,8 @@ public class CxxInferCapture
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList<String> frontendCommand = getFrontendCommand();
 
-    buildableContext.recordArtifact(this.getPathToOutput());
+    buildableContext.recordArtifact(
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
     Path inputRelativePath = context.getSourcePathResolver().getRelativePath(input);
     return ImmutableList.<Step>builder()
@@ -160,8 +157,8 @@ public class CxxInferCapture
   }
 
   @Override
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
-    return preprocessorDelegate.getPossibleInputSourcePaths();
+  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+    return preprocessorDelegate.getCoveredByDepFilePredicate();
   }
 
   @Override

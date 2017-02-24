@@ -146,7 +146,7 @@ public class CxxPreprocessAndCompileStep implements Step {
     return ProcessExecutorParams.builder()
         .setDirectory(filesystem.getRootPath().toAbsolutePath())
         .setRedirectError(ProcessBuilder.Redirect.PIPE)
-        .setEnvironment(env);
+        .setEnvironment(ImmutableMap.copyOf(env));
   }
 
   private ImmutableList<String> getDepFileArgs(Path depFile) {
@@ -274,9 +274,8 @@ public class CxxPreprocessAndCompileStep implements Step {
 
   private CxxErrorTransformerFactory createErrorTransformerFactory(ExecutionContext context) {
     return new CxxErrorTransformerFactory(
-        context.shouldReportAbsolutePaths() ?
-            Optional.of(filesystem::resolve) :
-            Optional.empty(),
+        filesystem,
+        context.shouldReportAbsolutePaths(),
         headerPathNormalizer);
   }
 

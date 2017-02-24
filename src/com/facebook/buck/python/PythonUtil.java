@@ -31,7 +31,6 @@ import com.facebook.buck.cxx.OmnibusRoots;
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -152,17 +151,6 @@ public class PythonUtil {
     }
     name = name.substring(0, ext);
     return MorePaths.pathWithUnixSeparators(name).replace('/', '.');
-  }
-
-  public static ImmutableSortedSet<BuildRule> getDepsFromComponents(
-      SourcePathRuleFinder ruleFinder,
-      PythonPackageComponents components) {
-    return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(ruleFinder.filterBuildRuleInputs(components.getModules().values()))
-        .addAll(ruleFinder.filterBuildRuleInputs(components.getResources().values()))
-        .addAll(ruleFinder.filterBuildRuleInputs(components.getNativeLibraries().values()))
-        .addAll(ruleFinder.filterBuildRuleInputs(components.getPrebuiltLibraries()))
-        .build();
   }
 
   public static PythonPackageComponents getAllComponents(
@@ -296,7 +284,7 @@ public class PythonUtil {
             Maps.uniqueIndex(
                 entry.getValue().getNativeLinkTarget(pythonPlatform)
                     .getNativeLinkTargetDeps(cxxPlatform),
-                HasBuildTarget::getBuildTarget));
+                NativeLinkable::getBuildTarget));
       }
 
       // Add all the native libraries.

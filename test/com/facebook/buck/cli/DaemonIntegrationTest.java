@@ -243,11 +243,12 @@ public class DaemonIntegrationTest {
             ImmutableMap.copyOf(System.getenv()),
             CommandMode.TEST,
             WatchmanWatcher.FreshInstanceAction.NONE,
+            System.nanoTime(),
             args);
         assertEquals("Unexpected exit code.", expectedExitCode, exitCode);
       } catch (IOException e) {
         fail("Should not throw exception.");
-        throw Throwables.propagate(e);
+        Throwables.throwIfUnchecked(e);
       } catch (InterruptedException e) {
         fail("Should not throw exception.");
         Thread.currentThread().interrupt();
@@ -379,15 +380,12 @@ public class DaemonIntegrationTest {
     }
   }
 
-  private void whenAppBuckFileRemovedThenRebuildFails(String cursorType)
+  @Test
+  public void whenAppBuckFileRemovedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
-    TestDataHelper.overrideBuckconfig(
-        workspace,
-        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
-
     ProcessResult result = workspace.runBuckdCommand("build", "app");
     result.assertSuccess();
 
@@ -398,26 +396,11 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void withNamedCursorAppBuckFileRemovedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenAppBuckFileRemovedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorAppBuckFileRemovedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenAppBuckFileRemovedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
-  }
-
-  private void whenActivityBuckFileRemovedThenRebuildFails(String cursorType)
+  public void whenActivityBuckFileRemovedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
-    TestDataHelper.overrideBuckconfig(
-        workspace,
-        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
-
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertSuccess();
 
     String fileName = "java/com/example/activity/BUCK";
@@ -427,26 +410,11 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void withNamedCursorActivityBuckFileRemovedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenActivityBuckFileRemovedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorActivityBuckFileRemovedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenActivityBuckFileRemovedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
-  }
-
-  private void whenSourceInputRemovedThenRebuildFails(String cursorType)
+  public void whenSourceInputRemovedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
-    TestDataHelper.overrideBuckconfig(
-        workspace,
-        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
-
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertSuccess();
 
     String fileName = "java/com/example/activity/MyFirstActivity.java";
@@ -462,26 +430,11 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void withNamedCursorSourceInputRemovedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenSourceInputRemovedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorSourceInputRemovedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenSourceInputRemovedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
-  }
-
-  private void whenSourceInputInvalidatedThenRebuildFails(String cursorType)
+  public void whenSourceInputInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
-    TestDataHelper.overrideBuckconfig(
-        workspace,
-        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
-
     workspace.runBuckdCommand("build", "//java/com/example/activity:activity").assertSuccess();
 
     String fileName = "java/com/example/activity/MyFirstActivity.java";
@@ -494,26 +447,11 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void withNamedCursorSourceInputInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenSourceInputInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorSourceInputInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenSourceInputInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
-  }
-
-  private void whenAppBuckFileInvalidatedThenRebuildFails(String cursorType)
+  public void whenAppBuckFileInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
-    TestDataHelper.overrideBuckconfig(
-        workspace,
-        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
-
     workspace.runBuckdCommand("build", "app").assertSuccess();
 
     String fileName = "apps/myapp/BUCK";
@@ -528,26 +466,11 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void withNamedCursorAppBuckFileInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenAppBuckFileInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorAppBuckFileInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenAppBuckFileInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
-  }
-
-  private void whenNativeBuckTargetInvalidatedThenRebuildFails(String cursorType)
+  public void whenNativeBuckTargetInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
-    TestDataHelper.overrideBuckconfig(
-        workspace,
-        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
-
     ProcessResult result = workspace.runBuckdCommand("run", "//native/main:main");
     result.assertSuccess();
     assertThat(
@@ -569,26 +492,11 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void withNamedCursorNativeBuckTargetInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenNativeBuckTargetInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorNativeBuckTargetInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenNativeBuckTargetInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
-  }
-
-  private void whenNativeSourceInputInvalidatedThenRebuildFails(String cursorType)
+  public void whenNativeSourceInputInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "file_watching", tmp);
     workspace.setUp();
-    TestDataHelper.overrideBuckconfig(
-        workspace,
-        ImmutableMap.of("project", ImmutableMap.of("watchman_cursor", cursorType)));
-
     ProcessResult result = workspace.runBuckdCommand("run", "//native/main:main");
     result.assertSuccess();
     assertThat(
@@ -610,19 +518,7 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void withNamedCursorNativeSourceInputInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenNativeSourceInputInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorNativeSourceInputInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenNativeSourceInputInvalidatedThenRebuildFails(
-        WatchmanWatcher.CursorType.CLOCK_ID.toString());
-  }
-
-  private void whenCrossCellSourceInvalidatedThenRebuildFails(String cursorType)
+  public void whenCrossCellSourceInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace primary = TestDataHelper.createProjectWorkspaceForScenario(
         this, "crosscell_file_watching/primary", tmp.newFolder());
@@ -635,19 +531,7 @@ public class DaemonIntegrationTest {
         ImmutableMap.of(
             "repositories", ImmutableMap.of(
                 "secondary",
-                secondary.getPath(".").normalize().toString()),
-            "project", ImmutableMap.of(
-                "track_cell_agnostic_target", "true",
-                "watch_cells", "true",
-                "watchman_cursor", cursorType)));
-    TestDataHelper.overrideBuckconfig(
-        secondary,
-        ImmutableMap.of(
-            "project", ImmutableMap.of(
-                "track_cell_agnostic_target", "true",
-                "watch_cells", "true",
-                "watchman_cursor", cursorType)));
-
+                secondary.getPath(".").normalize().toString())));
     primary.runBuckdCommand("build", "//:cxxbinary").assertSuccess();
     ProcessResult result = primary.runBuckdCommand("run", "//:cxxbinary");
     result.assertSuccess();
@@ -674,18 +558,7 @@ public class DaemonIntegrationTest {
   }
 
   @Test
-  public void withNamedCursorCrossCellSourceInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenCrossCellSourceInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorCrossCellSourceInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenCrossCellSourceInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.CLOCK_ID.toString());
-  }
-
-  private void whenCrossCellBuckFileInvalidatedThenRebuildFails(String cursorType)
+  public void whenCrossCellBuckFileInvalidatedThenRebuildFails()
       throws IOException, InterruptedException {
     final ProjectWorkspace primary = TestDataHelper.createProjectWorkspaceForScenario(
         this, "crosscell_file_watching/primary", tmp.newFolder());
@@ -698,19 +571,7 @@ public class DaemonIntegrationTest {
         ImmutableMap.of(
             "repositories", ImmutableMap.of(
                 "secondary",
-                secondary.getPath(".").normalize().toString()),
-            "project", ImmutableMap.of(
-                "track_cell_agnostic_target", "true",
-                "watch_cells", "true",
-                "watchman_cursor", cursorType)));
-    TestDataHelper.overrideBuckconfig(
-        secondary,
-        ImmutableMap.of(
-            "project", ImmutableMap.of(
-                "track_cell_agnostic_target", "true",
-                "watch_cells", "true",
-                "watchman_cursor", cursorType)));
-
+                secondary.getPath(".").normalize().toString())));
     primary.runBuckdCommand("build", "//:cxxbinary").assertSuccess();
 
     String fileName = "BUCK";
@@ -725,19 +586,6 @@ public class DaemonIntegrationTest {
           expected.getHumanReadableErrorMessage(),
           containsString("Couldn't get dependency 'secondary//:cxxlib' of target '//:cxxbinary'"));
     }
-  }
-
-  @Test
-  public void withNamedCursorCrossCellBuckFileInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenCrossCellBuckFileInvalidatedThenRebuildFails(WatchmanWatcher.CursorType.NAMED.toString());
-  }
-
-  @Test
-  public void withClockIdCursorCrossCellBuckFileInvalidatedThenRebuildFails()
-      throws IOException, InterruptedException {
-    whenCrossCellBuckFileInvalidatedThenRebuildFails(
-        WatchmanWatcher.CursorType.CLOCK_ID.toString());
   }
 
   @Test

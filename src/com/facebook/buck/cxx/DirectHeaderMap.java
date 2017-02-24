@@ -16,18 +16,17 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.google.common.annotations.VisibleForTesting;
+import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -44,9 +43,13 @@ public class DirectHeaderMap extends HeaderSymlinkTree {
   public DirectHeaderMap(
       BuildRuleParams params,
       Path root,
-      ImmutableMap<Path, SourcePath> links) {
-    super(params, root, links);
-    this.headerMapPath = getPath(params.getProjectFilesystem(), params.getBuildTarget());
+      ImmutableMap<Path, SourcePath> links,
+      SourcePathRuleFinder ruleFinder) {
+    super(params, root, links, ruleFinder);
+    this.headerMapPath = BuildTargets.getGenPath(
+        params.getProjectFilesystem(),
+        params.getBuildTarget(),
+        "%s.hmap");
   }
 
   @Override
@@ -70,7 +73,8 @@ public class DirectHeaderMap extends HeaderSymlinkTree {
     }
     return ImmutableList.<Step>builder()
         .add(getVerifyStep())
-        .add(new MakeCleanDirectoryStep(getProjectFilesystem(), super.getPathToOutput()))
+        .add(new MkdirStep(getProjectFilesystem(), headerMapPath.getParent()))
+        .add(new RmStep(getProjectFilesystem(), headerMapPath))
         .add(new HeaderMapStep(getProjectFilesystem(), headerMapPath, headerMapEntries.build()))
         .build();
   }
@@ -83,10 +87,5 @@ public class DirectHeaderMap extends HeaderSymlinkTree {
   @Override
   public Optional<Path> getHeaderMap() {
     return Optional.of(getProjectFilesystem().resolve(headerMapPath));
-  }
-
-  @VisibleForTesting
-  static Path getPath(ProjectFilesystem filesystem, BuildTarget target) {
-    return BuildTargets.getGenPath(filesystem, target, "%s.hmap");
   }
 }

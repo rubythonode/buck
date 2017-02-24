@@ -18,6 +18,7 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -25,13 +26,13 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
-import com.facebook.buck.util.MoreMaps;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Multiset;
@@ -46,16 +47,19 @@ import java.util.stream.Stream;
 
 public class SymlinkTree
     extends AbstractBuildRule
-    implements HasRuntimeDeps, RuleKeyAppendable, SupportsInputBasedRuleKey {
+    implements HasRuntimeDeps, SupportsInputBasedRuleKey {
 
   private final Path root;
   private final ImmutableSortedMap<Path, SourcePath> links;
+  private final SourcePathRuleFinder ruleFinder;
 
   public SymlinkTree(
       BuildRuleParams params,
       Path root,
-      final ImmutableMap<Path, SourcePath> links) {
+      final ImmutableMap<Path, SourcePath> links,
+      SourcePathRuleFinder ruleFinder) {
     super(params);
+    this.ruleFinder = ruleFinder;
 
     Preconditions.checkState(
         !root.isAbsolute(),
@@ -64,16 +68,6 @@ public class SymlinkTree
 
     this.root = root;
     this.links = ImmutableSortedMap.copyOf(links);
-  }
-
-  public static SymlinkTree from(
-      BuildRuleParams params,
-      Path root,
-      ImmutableMap<String, SourcePath> links) {
-    return new SymlinkTree(
-        params,
-        root,
-        MoreMaps.transformKeys(links, MorePaths.toPathFn(root.getFileSystem())));
   }
 
   @Override
@@ -204,8 +198,11 @@ public class SymlinkTree
   }
 
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
-    return links.values().stream();
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return links.values().stream()
+        .map(ruleFinder::filterBuildRuleInputs)
+        .flatMap(ImmutableSet::stream)
+        .map(BuildRule::getBuildTarget);
   }
 
   public Path getRoot() {

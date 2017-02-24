@@ -42,12 +42,10 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
@@ -222,8 +220,11 @@ public class CxxPythonExtensionDescription implements
 
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> argsBuilder = ImmutableList.builder();
     argsBuilder.addAll(
-        StringArg.from(
-            CxxFlags.getFlags(
+        CxxDescriptionEnhancer.toStringWithMacrosArgs(
+            params.getBuildTarget(),
+            params.getCellRoots(),
+            ruleResolver,
+            CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
                 args.linkerFlags,
                 args.platformLinkerFlags,
                 cxxPlatform)));
@@ -260,7 +261,7 @@ public class CxxPythonExtensionDescription implements
 
     // Add a dep on the python C/C++ library.
     if (pythonPlatform.getCxxLibrary().isPresent()) {
-      rules.add(ruleResolver.getRule(pythonPlatform.getCxxLibrary().get().getBuildTarget()));
+      rules.add(ruleResolver.getRule(pythonPlatform.getCxxLibrary().get()));
     }
 
     return rules.build();
@@ -396,7 +397,7 @@ public class CxxPythonExtensionDescription implements
           CxxPlatform cxxPlatform)
           throws NoSuchBuildTargetException {
         BuildRule extension = getExtension(pythonPlatform, cxxPlatform);
-        SourcePath output = new BuildTargetSourcePath(extension.getBuildTarget());
+        SourcePath output = extension.getSourcePathToOutput();
         return PythonPackageComponents.of(
             ImmutableMap.of(module, output),
             ImmutableMap.of(),
@@ -458,10 +459,8 @@ public class CxxPythonExtensionDescription implements
       }
 
       @Override
-      public Stream<SourcePath> getRuntimeDeps() {
-        return getDeclaredDeps().stream()
-            .map(HasBuildTarget::getBuildTarget)
-            .map(BuildTargetSourcePath::new);
+      public Stream<BuildTarget> getRuntimeDeps() {
+        return getDeclaredDeps().stream().map(BuildRule::getBuildTarget);
       }
 
     };

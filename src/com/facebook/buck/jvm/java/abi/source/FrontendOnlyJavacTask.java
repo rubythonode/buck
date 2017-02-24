@@ -17,8 +17,8 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.event.api.BuckTracing;
-import com.facebook.buck.util.exportedfiles.Nullable;
-import com.facebook.buck.util.exportedfiles.Preconditions;
+import com.facebook.buck.util.liteinfersupport.Nullable;
+import com.facebook.buck.util.liteinfersupport.Preconditions;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.MethodTree;
@@ -256,7 +256,10 @@ class FrontendOnlyJavacTask extends JavacTask {
 
   @Override
   public void setProcessors(Iterable<? extends Processor> processors) {
-    throw new UnsupportedOperationException("NYI");
+    if (processors.iterator().hasNext()) {
+      // Only throw if there's actually something there; an empty list we can actually handle
+      throw new UnsupportedOperationException("NYI");
+    }
   }
 
   @Override

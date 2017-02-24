@@ -210,7 +210,8 @@ public class CxxPreprocessablesTest {
   public void createHeaderSymlinkTreeBuildRuleHasNoDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
@@ -228,7 +229,7 @@ public class CxxPreprocessablesTest {
 
     // Setup a simple genrule we can wrap in a BuildTargetSourcePath to model a input source
     // that is built by another rule.
-    Genrule genrule = (Genrule) GenruleBuilder
+    Genrule genrule = GenruleBuilder
         .newGenruleBuilder(BuildTargetFactory.newInstance(filesystem, "//:genrule"))
         .setOut("foo/bar.o")
         .build(resolver);
@@ -247,7 +248,8 @@ public class CxxPreprocessablesTest {
         params,
         root,
         links,
-        CxxPreprocessables.HeaderMode.SYMLINK_TREE_ONLY);
+        CxxPreprocessables.HeaderMode.SYMLINK_TREE_ONLY,
+        ruleFinder);
 
     // Verify that the symlink tree has no deps.  This is by design, since setting symlinks can
     // be done completely independently from building the source that the links point to and

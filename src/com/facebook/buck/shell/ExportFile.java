@@ -16,25 +16,28 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
@@ -79,6 +82,7 @@ import java.util.stream.Stream;
 public class ExportFile extends AbstractBuildRuleWithResolver
     implements HasOutputName, HasRuntimeDeps {
 
+  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey
   private final String name;
   @AddToRuleKey
@@ -88,19 +92,21 @@ public class ExportFile extends AbstractBuildRuleWithResolver
 
   ExportFile(
       BuildRuleParams buildRuleParams,
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver resolver,
       String name,
       ExportFileDescription.Mode mode,
       SourcePath src) {
     super(buildRuleParams, resolver);
+    this.ruleFinder = ruleFinder;
     this.name = name;
     this.mode = mode;
     this.src = src;
   }
 
   @VisibleForTesting
-  ImmutableCollection<Path> getSource() {
-    return getResolver().filterInputsToCompareToOutput(src);
+  SourcePath getSource() {
+    return src;
   }
 
   private Path getCopiedPath() {
@@ -113,6 +119,7 @@ public class ExportFile extends AbstractBuildRuleWithResolver
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
+    SourcePathResolver resolver = context.getSourcePathResolver();
 
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
@@ -123,20 +130,19 @@ public class ExportFile extends AbstractBuildRuleWithResolver
       builder.add(new RmStep(
           getProjectFilesystem(),
           out,
-          RmStep.Mode.FORCED,
           RmStep.Mode.RECURSIVE));
-      if (getResolver().getFilesystem(src).isDirectory(getResolver().getRelativePath(src))) {
+      if (resolver.getFilesystem(src).isDirectory(resolver.getRelativePath(src))) {
         builder.add(
             CopyStep.forDirectory(
                 getProjectFilesystem(),
-                getResolver().getAbsolutePath(src),
+                resolver.getAbsolutePath(src),
                 out,
                 CopyStep.DirectoryMode.CONTENTS_ONLY));
       } else {
         builder.add(
             CopyStep.forFile(
                 getProjectFilesystem(),
-                getResolver().getAbsolutePath(src),
+                resolver.getAbsolutePath(src),
                 out));
       }
       buildableContext.recordArtifact(out);
@@ -161,10 +167,12 @@ public class ExportFile extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     // When using reference mode, we need to make sure that any build rule that builds the source
     // is built when we are, so accomplish this by exporting it as a runtime dep.
-    return mode == ExportFileDescription.Mode.REFERENCE ? Stream.of(src) : Stream.empty();
+    Optional<BuildRule> rule = ruleFinder.getRule(src);
+    return mode == ExportFileDescription.Mode.REFERENCE && rule.isPresent() ?
+        Stream.of(rule.get().getBuildTarget()) : Stream.empty();
   }
 
 }

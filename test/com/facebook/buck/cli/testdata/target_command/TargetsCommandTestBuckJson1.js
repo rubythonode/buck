@@ -15,6 +15,7 @@
   "fully_qualified_name": "//:test-library",
   "generateAbiFromSource": null,
   "generatedSymbols": null,
+  "labels" : null,
   "licenses": null,
   "javac": null,
   "javacJar": null,
@@ -24,6 +25,7 @@
   "mavenCoords":null,
   "mavenPomTemplate":null,
   "name" : "test-library",
+  "plugins" : null,
   "postprocessClassesCommands" : null,
   "proguardConfig" : null,
   "providedDeps": null,
@@ -32,7 +34,6 @@
   "resourcesRoot" : null,
   "source" : "6",
   "srcs" : [],
-  "tags" : null,
   "target" : "6",
   "tests" : null,
   "visibility" : [ "PUBLIC" ]

@@ -145,6 +145,10 @@ public class AgentMain {
       connectionSocket.setSoTimeout(RECEIVE_TIMEOUT_MS);
       InputStream input = connectionSocket.getInputStream();
 
+      // Report that the socket has been opened.
+      System.out.write(new byte[]{'z', '1', '\n'});
+      System.out.flush();
+
       receiveAndValidateSessionKey(secretKey, input);
 
       doRawReceiveFile(path, size, input);
@@ -171,7 +175,7 @@ public class AgentMain {
     }
     StringBuilder keyBuilder = new StringBuilder();
     for (byte b : binaryKey) {
-      keyBuilder.append(String.format((Locale) null, "%02x", b));
+      keyBuilder.append(String.format((Locale) null, "%02X", b));
     }
     byte[] secretKey = keyBuilder.toString().getBytes();
     if (secretKey.length != AgentUtil.TEXT_SECRET_KEY_SIZE) {
@@ -180,6 +184,7 @@ public class AgentMain {
 
     // Send the key over stdout so only the host can read it.
     System.out.write(secretKey);
+    System.out.write('\n');
     System.out.flush();
 
     return secretKey;
@@ -220,7 +225,15 @@ public class AgentMain {
         if (currentTimeMs - receiveStartMs > RECEIVE_TIMEOUT_MS) {
           throw new RuntimeException("Receive failed to complete before timeout.");
         }
-        int got = clientInput.read(buf);
+        int remaining = size - (int) totalSize;
+        if (remaining == 0) {
+          break;
+        }
+        int want = bufferSize;
+        if (want > remaining) {
+          want = remaining;
+        }
+        int got = clientInput.read(buf, 0, want);
         if (got == -1) {
           break;
         }

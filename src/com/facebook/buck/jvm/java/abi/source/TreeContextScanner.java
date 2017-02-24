@@ -16,14 +16,15 @@
 
 package com.facebook.buck.jvm.java.abi.source;
 
-import com.facebook.buck.util.exportedfiles.Nullable;
-import com.facebook.buck.util.exportedfiles.Preconditions;
+import com.facebook.buck.util.liteinfersupport.Nullable;
+import com.facebook.buck.util.liteinfersupport.Preconditions;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePath;
 import com.sun.source.util.TreeScanner;
 import com.sun.source.util.Trees;
 
 import javax.lang.model.element.Element;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * A {@link TreeScanner} that keeps track of the following as it is scanning:
@@ -64,6 +65,11 @@ class TreeContextScanner<R, P> extends TreeScanner<R, P> {
   @Nullable
   protected final Element getCurrentElement() {
     return trees.getElement(getCurrentPath());
+  }
+
+  @Nullable
+  protected final TypeMirror getCurrentType() {
+    return trees.getTypeMirror(getCurrentPath());
   }
 
   @Override

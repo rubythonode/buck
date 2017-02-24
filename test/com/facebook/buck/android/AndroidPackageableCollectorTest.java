@@ -26,7 +26,6 @@ import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -95,7 +94,7 @@ public class AndroidPackageableCollectorTest {
         BuildTargetFactory.newInstance("//java/src/com/facebook:example");
     TargetNode<?, ?> library = JavaLibraryBuilder
         .createBuilder(libraryRuleTarget)
-        .setProguardConfig(Paths.get("debug.pro"))
+        .setProguardConfig(new FakeSourcePath("debug.pro"))
         .addSrc(Paths.get("Example.java"))
         .addDep(guavaTarget)
         .addDep(jsr305Target)
@@ -267,7 +266,7 @@ public class AndroidPackageableCollectorTest {
     // Note that a topological sort for a DAG is not guaranteed to be unique, but we order nodes
     // within the same depth of the search.
     ImmutableList<BuildTarget> result = ImmutableList.of(a, d, b, c).stream()
-        .map(HasBuildTarget::getBuildTarget)
+        .map(BuildRule::getBuildTarget)
         .collect(MoreCollectors.toImmutableList());
 
     assertEquals(
@@ -286,7 +285,7 @@ public class AndroidPackageableCollectorTest {
 
     ImmutableSortedSet<BuildTarget> declaredDepsTargets =
         ImmutableSortedSet.of(a.getBuildTarget(), c.getBuildTarget());
-    AndroidBinary androidBinary = (AndroidBinary) AndroidBinaryBuilder
+    AndroidBinary androidBinary = AndroidBinaryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//:e"))
         .setManifest(new FakeSourcePath("AndroidManfiest.xml"))
         .setKeystore(keystoreTarget)
@@ -387,7 +386,7 @@ public class AndroidPackageableCollectorTest {
 
     ImmutableSortedSet<BuildTarget> originalDepsTargets =
         ImmutableSortedSet.of(androidLibrary.getBuildTarget());
-    AndroidBinary androidBinary = (AndroidBinary) AndroidBinaryBuilder.createBuilder(
+    AndroidBinary androidBinary = AndroidBinaryBuilder.createBuilder(
         BuildTargetFactory.newInstance("//apps/sample:app"))
         .setManifest(new FakeSourcePath("apps/sample/AndroidManifest.xml"))
         .setOriginalDeps(originalDepsTargets)

@@ -30,8 +30,9 @@ import com.facebook.buck.model.MacroException;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -101,9 +102,10 @@ public class LocationMacroExpanderTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
     BuildRule javaBinary = createSampleJavaBinaryRule(ruleResolver);
-    Path outputPath = javaBinary.getPathToOutput();
-    Path absolutePath = outputPath.toAbsolutePath();
+    Path absolutePath = pathResolver.getAbsolutePath(javaBinary.getSourcePathToOutput());
 
     String originalCmd = String.format(
         "$(location :%s) $(location %s) $OUT",
@@ -136,7 +138,7 @@ public class LocationMacroExpanderTest {
     BuildRuleResolver resolver = new BuildRuleResolver(
         TargetGraphFactory.newInstance(node),
         new DefaultTargetNodeToBuildRuleTransformer());
-    resolver.requireRule(node.getBuildTarget());
+    BuildRule rule = resolver.requireRule(node.getBuildTarget());
     LocationMacroExpander macroExpander = new LocationMacroExpander();
     assertThat(
         macroExpander.extractRuleKeyAppendables(
@@ -144,8 +146,7 @@ public class LocationMacroExpanderTest {
             createCellRoots(new FakeProjectFilesystem()),
             resolver,
             ImmutableList.of(input)),
-        Matchers.equalTo(
-            new BuildTargetSourcePath(BuildTargetFactory.newInstance(input))));
+        Matchers.equalTo(rule.getSourcePathToOutput()));
   }
 
 }

@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLibrary;
-import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.Linker;
@@ -31,20 +30,19 @@ import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -57,7 +55,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -66,6 +63,7 @@ import org.immutables.value.Value;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -75,6 +73,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * Helper for AndroidLibraryGraphEnhancer to handle semi-transparent merging of native libraries.
@@ -123,9 +122,12 @@ class NativeLibraryMergeEnhancer {
 
     for (APKModule module : modules) {
       // Sort by build target here to ensure consistent behavior.
-      Iterable<NativeLinkable> allLinkables = FluentIterable.from(
-          Iterables.concat(linkables.get(module), linkablesAssets.get(module)))
-          .toSortedList(HasBuildTarget.BUILD_TARGET_COMPARATOR);
+      Iterable<NativeLinkable> allLinkables =
+          Stream.concat(
+              linkables.get(module).stream(),
+              linkablesAssets.get(module).stream())
+          .sorted(Comparator.comparing(NativeLinkable::getBuildTarget))
+          .collect(MoreCollectors.toImmutableList());
 
       final ImmutableSet<NativeLinkable> linkableAssetSet =
           ImmutableSet.copyOf(linkablesAssets.get(module));
@@ -379,7 +381,9 @@ class NativeLibraryMergeEnhancer {
       }
     }
 
-    return ImmutableSortedSet.copyOf(HasBuildTarget.BUILD_TARGET_COMPARATOR, mergeResults.values());
+    return ImmutableSortedSet.copyOf(
+        Comparator.comparing(NativeLinkable::getBuildTarget),
+        mergeResults.values());
   }
 
   /**
@@ -408,8 +412,9 @@ class NativeLibraryMergeEnhancer {
       }
     }
     // Sort here to ensure consistent ordering, because the build target depends on the order.
-    return Ordering.from(HasBuildTarget.BUILD_TARGET_COMPARATOR)
-        .sortedCopy(structuralDeps.keySet());
+    return structuralDeps.keySet().stream()
+        .sorted(Comparator.comparing(MergedLibNativeLinkable::getBuildTarget))
+        .collect(MoreCollectors.toImmutableList());
   }
 
   /**
@@ -768,8 +773,11 @@ class NativeLibraryMergeEnhancer {
       String soname = getSoname(cxxPlatform);
       BuildTarget target = getBuildTargetForPlatform(cxxPlatform);
       Optional<BuildRule> ruleOptional = ruleResolver.getRuleOptional(target);
-      if (!ruleOptional.isPresent()) {
-        CxxLink rule = CxxLinkableEnhancer.createCxxLinkableBuildRule(
+      BuildRule rule = null;
+      if (ruleOptional.isPresent()) {
+        rule = ruleOptional.get();
+      } else {
+        rule = CxxLinkableEnhancer.createCxxLinkableBuildRule(
             cxxBuckConfig,
             cxxPlatform,
             baseBuildRuleParams,
@@ -794,10 +802,7 @@ class NativeLibraryMergeEnhancer {
             getImmediateNativeLinkableInput(cxxPlatform));
         ruleResolver.addToIndex(rule);
       }
-      return ImmutableMap.of(
-          soname,
-          new BuildTargetSourcePath(target)
-      );
+      return ImmutableMap.of(soname, rule.getSourcePathToOutput());
     }
   }
 }

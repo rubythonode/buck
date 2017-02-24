@@ -16,72 +16,71 @@
 
 package com.facebook.buck.jvm.java.abi;
 
-import static org.objectweb.asm.ClassReader.SKIP_CODE;
-import static org.objectweb.asm.ClassReader.SKIP_DEBUG;
-import static org.objectweb.asm.ClassReader.SKIP_FRAMES;
-
-import com.facebook.buck.io.HashingDeterministicJarWriter;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.google.common.base.Preconditions;
 
-import org.objectweb.asm.ClassReader;
-
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.jar.JarOutputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.function.Supplier;
+
+import javax.lang.model.SourceVersion;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Elements;
 
 public class StubJar {
-
-  private final Path toMirror;
+  private final Supplier<LibraryReader<ClassMirror>> libraryReaderSupplier;
 
   public StubJar(Path toMirror) {
-    this.toMirror = Preconditions.checkNotNull(toMirror);
+    libraryReaderSupplier = () ->
+        new StubbingLibraryReader<>(LibraryReader.of(toMirror), BytecodeStubber::createStub);
+  }
+
+  /**
+   * @param targetVersion the class file version to output, expressed as the corresponding Java
+   *                      source version
+   */
+  public StubJar(
+      SourceVersion targetVersion,
+      Elements elements,
+      Iterable<TypeElement> topLevelTypes) {
+    ClassVisitorDriverFromElement driver =
+        new ClassVisitorDriverFromElement(targetVersion, elements);
+    libraryReaderSupplier = () -> new StubbingLibraryReader<>(
+        LibraryReader.of(elements, topLevelTypes),
+        driver::driveVisitor);
   }
 
   public void writeTo(ProjectFilesystem filesystem, Path path) throws IOException {
-    Preconditions.checkState(!filesystem.exists(path), "Output file already exists: %s)", path);
-
-    if (path.getParent() != null && !filesystem.exists(path.getParent())) {
-      filesystem.createParentDirs(path);
-    }
-
-    Walker walker = Walkers.getWalkerFor(toMirror);
-    try (
-        HashingDeterministicJarWriter jar = new HashingDeterministicJarWriter(
-            new JarOutputStream(
-                filesystem.newFileOutputStream(path)))) {
-      final CreateStubAction createStubAction = new CreateStubAction(jar);
-      walker.walk(createStubAction);
+    try (StubJarWriter writer = new FilesystemStubJarWriter(filesystem, path)) {
+      writeTo(writer);
     }
   }
 
-  private static class CreateStubAction implements FileAction {
-    private final HashingDeterministicJarWriter writer;
+  private void writeTo(StubJarWriter writer) throws IOException {
+    try (LibraryReader<ClassMirror> input = libraryReaderSupplier.get()) {
+      List<Path> paths = new ArrayList<>(input.getRelativePaths());
+      Collections.sort(paths);
 
-    public CreateStubAction(HashingDeterministicJarWriter writer) {
-      this.writer = writer;
-    }
-
-    @Override
-    public void visit(Path relativizedPath, InputStream stream) throws IOException {
-      String fileName = MorePaths.pathWithUnixSeparators(relativizedPath);
-      if (fileName.endsWith(".class")) {
-        try (InputStream stubClassBytes = getStubClassBytes(stream, fileName)) {
-          writer.writeEntry(fileName, stubClassBytes);
+      for (Path path : paths) {
+        if (isStubbableResource(input, path)) {
+          try (InputStream resourceContents = input.openResourceFile(path)) {
+            writer.writeResource(path, resourceContents);
+          }
+        } else if (input.isClass(path)) {
+          ClassMirror stub = input.openClass(path);
+          if (!stub.isAnonymousOrLocalClass()) {
+            writer.writeClass(path, stub);
+          }
         }
-      } else if (!"META-INF/MANIFEST.MF".equals(fileName)) {
-        writer.writeEntry(fileName, stream);
       }
     }
+  }
 
-    private InputStream getStubClassBytes(InputStream stream,
-        String fileName) throws IOException {
-      ClassReader classReader = new ClassReader(stream);
-      ClassMirror visitor = new ClassMirror(fileName);
-      classReader.accept(visitor, SKIP_CODE | SKIP_DEBUG | SKIP_FRAMES);
-      return visitor.getStubClassBytes().openStream();
-    }
+  private boolean isStubbableResource(LibraryReader<?> input, Path path) {
+    return input.isResource(path) && !path.endsWith("META-INF" + File.separator + "MANIFEST.MF");
   }
 }

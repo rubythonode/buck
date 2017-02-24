@@ -15,12 +15,14 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -60,7 +62,9 @@ public abstract class DebugPathSanitizer {
     return Strings.padEnd(path.toString(), pathSize, separator);
   }
 
-  abstract Map<String, String> getCompilationEnvironment(Path workingDir, boolean shouldSanitize);
+  abstract ImmutableMap<String, String> getCompilationEnvironment(
+      Path workingDir,
+      boolean shouldSanitize);
 
   abstract ImmutableList<String> getCompilationFlags();
 
@@ -109,4 +113,13 @@ public abstract class DebugPathSanitizer {
   // Construct the replacer, giving the expanded current directory and the desired directory.
   // We use ASCII, since all the relevant debug standards we care about (e.g. DWARF) use it.
   abstract void restoreCompilationDirectory(Path path, Path workingDir) throws IOException;
+
+  /**
+   * Defensive check for cross-cell builds: asserts that this sanitizer can safely run
+   * in the provided ProjectFilesystem.
+   */
+  @SuppressWarnings("unused")
+  public void assertInProjectFilesystem(Object ruleName, ProjectFilesystem projectFilesystem) {
+    // Do nothing by default.  Only one subclass is able to check this for now.
+  }
 }

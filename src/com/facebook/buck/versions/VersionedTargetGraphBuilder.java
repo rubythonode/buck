@@ -413,8 +413,8 @@ public class VersionedTargetGraphBuilder {
         return get();
       } catch (ExecutionException e) {
         Throwable rootCause = Throwables.getRootCause(e);
-        Throwables.propagateIfInstanceOf(rootCause, VersionException.class);
-        Throwables.propagateIfInstanceOf(rootCause, RuntimeException.class);
+        Throwables.throwIfInstanceOf(rootCause, VersionException.class);
+        Throwables.throwIfInstanceOf(rootCause, RuntimeException.class);
         throw new IllegalStateException(
             String.format("Unexpected exception: %s: %s", e.getClass(), e.getMessage()),
             e);
@@ -496,8 +496,11 @@ public class VersionedTargetGraphBuilder {
               versionInfo.getVersionDomain());
 
       // Build a target translator object to translate build targets.
+      ImmutableList<TargetTranslator<?>> translators =
+          ImmutableList.of(
+              new QueryTargetTranslator());
       TargetNodeTranslator targetTranslator =
-          new TargetNodeTranslator() {
+          new TargetNodeTranslator(translators) {
 
             private final LoadingCache<BuildTarget, Optional<BuildTarget>> cache =
                 CacheBuilder.newBuilder()

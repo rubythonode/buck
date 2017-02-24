@@ -28,7 +28,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildFileSpec;
@@ -51,6 +50,7 @@ import com.facebook.buck.rules.TargetGraphHashing;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
@@ -387,7 +387,7 @@ public class TargetsCommand extends AbstractCommand {
           descriptionClasses);
 
       Iterable<BuildTarget> buildTargets = FluentIterable.from(matchingNodes.values()).transform(
-          HasBuildTarget::getBuildTarget);
+          TargetNode::getBuildTarget);
 
       return TargetGraphAndBuildTargets.builder()
           .setTargetGraph(completeTargetGraphAndBuildTargets.getTargetGraph())
@@ -590,7 +590,7 @@ public class TargetsCommand extends AbstractCommand {
     if (referencedFiles.isPresent()) {
       BuildFileTree buildFileTree = new InMemoryBuildFileTree(
           graph.getNodes().stream()
-              .map(HasBuildTarget::getBuildTarget)
+              .map(TargetNode::getBuildTarget)
               .collect(MoreCollectors.toImmutableSet()));
       directOwners = FluentIterable
           .from(graph.getNodes())
@@ -823,7 +823,7 @@ public class TargetsCommand extends AbstractCommand {
         SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(result.getResolver());
         ruleKeyFactory = Optional.of(
             new DefaultRuleKeyFactory(
-                params.getBuckConfig().getKeySeed(),
+                new RuleKeyFieldLoader(params.getBuckConfig().getKeySeed()),
                 params.getFileHashCache(),
                 new SourcePathResolver(ruleFinder),
                 ruleFinder));
@@ -842,6 +842,7 @@ public class TargetsCommand extends AbstractCommand {
         if (isShowOutput() || isShowFullOutput()) {
           Optional<Path> outputPath =
               getUserFacingOutputPath(
+                  new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver.get())),
                   rule,
                   isShowFullOutput(),
                   params.getBuckConfig().getBuckOutCompatLink());
@@ -860,10 +861,12 @@ public class TargetsCommand extends AbstractCommand {
   }
 
   static Optional<Path> getUserFacingOutputPath(
+      SourcePathResolver pathResolver,
       BuildRule rule,
       boolean absolute,
       boolean buckOutCompatLink) {
-    Optional<Path> outputPathOptional = Optional.ofNullable(rule.getPathToOutput());
+    Optional<Path> outputPathOptional =
+        Optional.ofNullable(rule.getSourcePathToOutput()).map(pathResolver::getRelativePath);
 
     // When using buck out compat mode, we favor using the default buck output path in the UI, so
     // amend the output paths when this is set.

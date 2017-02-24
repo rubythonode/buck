@@ -25,10 +25,11 @@ import com.facebook.buck.parser.BuildTargetSpec;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -120,7 +121,7 @@ public class PublishCommand extends BuildCommand {
         buildRule = getBuild().getRuleResolver().requireRule(buildTarget);
       } catch (NoSuchBuildTargetException e) {
         // This doesn't seem physically possible!
-        Throwables.propagate(e);
+        throw new RuntimeException(e);
       }
       Preconditions.checkNotNull(buildRule);
 
@@ -151,7 +152,9 @@ public class PublishCommand extends BuildCommand {
         dryRun);
 
     try {
-      ImmutableSet<DeployResult> deployResults = publisher.publish(publishables.build());
+      ImmutableSet<DeployResult> deployResults = publisher.publish(
+          new SourcePathResolver(new SourcePathRuleFinder(getBuild().getRuleResolver())),
+          publishables.build());
       for (DeployResult deployResult : deployResults) {
         printArtifactsInformation(params, deployResult);
       }

@@ -31,11 +31,11 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -43,14 +43,18 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.ShBinary;
 import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -76,7 +80,7 @@ public class PythonTestDescriptionTest {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    PythonTest testRule = (PythonTest) builder.build(resolver, filesystem, targetGraph);
+    PythonTest testRule = builder.build(resolver, filesystem, targetGraph);
     PythonBinary binRule = testRule.getBinary();
     PythonPackageComponents components = binRule.getComponents();
     assertThat(
@@ -107,7 +111,7 @@ public class PythonTestDescriptionTest {
             .setSrcs(SourceList.ofUnnamedSources(ImmutableSortedSet.of(source)));
     TargetGraph normalTargetGraph = TargetGraphFactory.newInstance(normalBuilder.build());
     PythonTest normal =
-        (PythonTest) normalBuilder.build(
+        normalBuilder.build(
             new BuildRuleResolver(
                 normalTargetGraph,
                 new DefaultTargetNodeToBuildRuleTransformer()),
@@ -126,7 +130,7 @@ public class PythonTestDescriptionTest {
     TargetGraph withBaseModuleTargetGraph =
         TargetGraphFactory.newInstance(withBaseModuleBuilder.build());
     PythonTest withBaseModule =
-        (PythonTest) withBaseModuleBuilder.build(
+        withBaseModuleBuilder.build(
             new BuildRuleResolver(
                 withBaseModuleTargetGraph,
                 new DefaultTargetNodeToBuildRuleTransformer()),
@@ -149,7 +153,7 @@ public class PythonTestDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
-    PythonTest test = (PythonTest) builder.build(resolver, filesystem, targetGraph);
+    PythonTest test = builder.build(resolver, filesystem, targetGraph);
     PythonBinary binary = test.getBinary();
     ImmutableList<Step> buildSteps = binary.getBuildSteps(
         FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
@@ -182,7 +186,7 @@ public class PythonTestDescriptionTest {
                     .build());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
     PythonTest test =
-        (PythonTest) builder.build(
+        builder.build(
             new BuildRuleResolver(
                 targetGraph,
                 new DefaultTargetNodeToBuildRuleTransformer()),
@@ -214,7 +218,7 @@ public class PythonTestDescriptionTest {
                     .build());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
     PythonTest test =
-        (PythonTest) builder.build(
+        builder.build(
             new BuildRuleResolver(
                 targetGraph,
                 new DefaultTargetNodeToBuildRuleTransformer()),
@@ -246,7 +250,7 @@ public class PythonTestDescriptionTest {
             FlavorDomain.of("Python Platform", platform1, platform2));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
     PythonTest test1 =
-        (PythonTest) builder
+        builder
             .setPlatform(platform1.getFlavor().toString())
             .build(
                 new BuildRuleResolver(
@@ -256,7 +260,7 @@ public class PythonTestDescriptionTest {
                 targetGraph);
     assertThat(test1.getBinary().getPythonPlatform(), Matchers.equalTo(platform1));
     PythonTest test2 =
-        (PythonTest) builder
+        builder
             .setPlatform(platform2.getFlavor().toString())
             .build(
                 new BuildRuleResolver(
@@ -290,14 +294,14 @@ public class PythonTestDescriptionTest {
       BuildRule cxxBinary = cxxBinaryBuilder.build(resolver, filesystem, targetGraph);
       pythonLibraryBuilder.build(resolver, filesystem, targetGraph);
       PythonTest pythonTest =
-          (PythonTest) pythonTestBuilder.build(resolver, filesystem, targetGraph);
+          pythonTestBuilder.build(resolver, filesystem, targetGraph);
       assertThat(
           String.format(
               "Transitive runtime deps of %s [%s]",
               pythonTest,
               packageStyle.toString()),
-          BuildRules.getTransitiveRuntimeDeps(pythonTest, new SourcePathRuleFinder(resolver)),
-          Matchers.hasItem(new BuildTargetSourcePath(cxxBinary.getBuildTarget())));
+          BuildRules.getTransitiveRuntimeDeps(pythonTest, resolver),
+          Matchers.hasItem(cxxBinary.getBuildTarget()));
     }
   }
 
@@ -310,7 +314,7 @@ public class PythonTestDescriptionTest {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    PythonTest pythonTest = (PythonTest) builder.build(resolver, filesystem, targetGraph);
+    PythonTest pythonTest = builder.build(resolver, filesystem, targetGraph);
     assertThat(
         pythonTest.getBinary(),
         Matchers.instanceOf(PythonInPlaceBinary.class));
@@ -319,7 +323,7 @@ public class PythonTestDescriptionTest {
             .setPackageStyle(PythonBuckConfig.PackageStyle.STANDALONE);
     targetGraph = TargetGraphFactory.newInstance(builder.build());
     resolver = new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    pythonTest = (PythonTest) builder.build(resolver, filesystem, targetGraph);
+    pythonTest = builder.build(resolver, filesystem, targetGraph);
     assertThat(
         pythonTest.getBinary(),
         Matchers.instanceOf(PythonPackagedBinary.class));
@@ -357,11 +361,11 @@ public class PythonTestDescriptionTest {
         new BuildRuleResolver(
             targetGraph,
             new DefaultTargetNodeToBuildRuleTransformer());
-    ShBinary pexExecutor = (ShBinary) pexExecutorBuilder.build(resolver);
-    PythonTest binary = (PythonTest) builder.build(resolver, filesystem, targetGraph);
+    ShBinary pexExecutor = pexExecutorBuilder.build(resolver);
+    PythonTest binary = builder.build(resolver, filesystem, targetGraph);
     assertThat(
         binary.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
-        Matchers.hasItem(new BuildTargetSourcePath(pexExecutor.getBuildTarget())));
+        Matchers.hasItem(pexExecutor.getBuildTarget()));
   }
 
   @Test
@@ -433,7 +437,7 @@ public class PythonTestDescriptionTest {
     GenruleBuilder depBuilder =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out");
-    AbstractNodeBuilder<?, ?> builder =
+    AbstractNodeBuilder<?, ?, ?> builder =
         PythonTestBuilder.create(target)
             .setVersionedSrcs(
                 VersionMatchedCollection.<SourceList>builder()
@@ -468,7 +472,7 @@ public class PythonTestDescriptionTest {
     GenruleBuilder depBuilder =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out");
-    AbstractNodeBuilder<?, ?> builder =
+    AbstractNodeBuilder<?, ?, ?> builder =
         PythonTestBuilder.create(target)
             .setVersionedResources(
                 VersionMatchedCollection.<SourceList>builder()
@@ -492,6 +496,54 @@ public class PythonTestDescriptionTest {
         Matchers.allOf(
             Matchers.hasItem(matchedSource),
             Matchers.not(Matchers.hasItem(unmatchedSource))));
+  }
+
+  @Test
+  public void nonBuildDepsDoNotAffectRuleKey() throws Exception {
+    ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
+    for (PythonBuckConfig.PackageStyle packageStyle : PythonBuckConfig.PackageStyle.values()) {
+
+      // First, calculate the rule key of a python binary with no deps.
+      PythonTestBuilder pythonTestBuilder =
+          PythonTestBuilder.create(BuildTargetFactory.newInstance("//:bin"))
+              .setPackageStyle(packageStyle);
+      TargetGraph targetGraph =
+          TargetGraphFactory.newInstance(
+              pythonTestBuilder.build());
+      BuildRuleResolver resolver =
+          new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+      PythonTest pythonTestWithoutDep =
+          pythonTestBuilder.build(resolver, filesystem, targetGraph);
+      RuleKey ruleKeyWithoutDep = calculateRuleKey(resolver, pythonTestWithoutDep);
+
+      // Next, calculate the rule key of a python binary with a deps on another binary.
+      CxxBinaryBuilder cxxBinaryBuilder =
+          new CxxBinaryBuilder(BuildTargetFactory.newInstance("//:dep"));
+      pythonTestBuilder.setDeps(ImmutableSortedSet.of(cxxBinaryBuilder.getTarget()));
+      targetGraph =
+          TargetGraphFactory.newInstance(
+              cxxBinaryBuilder.build(),
+              pythonTestBuilder.build());
+      resolver = new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+      cxxBinaryBuilder.build(resolver, filesystem, targetGraph);
+      PythonTest pythonBinaryWithDep =
+          pythonTestBuilder.build(resolver, filesystem, targetGraph);
+      RuleKey ruleKeyWithDep = calculateRuleKey(resolver, pythonBinaryWithDep);
+
+      // Verify that the rule keys are identical.
+      assertThat(ruleKeyWithoutDep, Matchers.equalTo(ruleKeyWithDep));
+    }
+  }
+
+  private RuleKey calculateRuleKey(BuildRuleResolver ruleResolver, BuildRule rule) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(
+            new RuleKeyFieldLoader(0),
+            DefaultFileHashCache.createDefaultFileHashCache(rule.getProjectFilesystem()),
+            new SourcePathResolver(ruleFinder),
+            ruleFinder);
+    return ruleKeyFactory.build(rule);
   }
 
 }

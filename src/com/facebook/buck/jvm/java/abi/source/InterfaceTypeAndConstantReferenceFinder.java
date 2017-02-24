@@ -16,7 +16,7 @@
 
 package com.facebook.buck.jvm.java.abi.source;
 
-import com.facebook.buck.util.exportedfiles.Preconditions;
+import com.facebook.buck.util.liteinfersupport.Preconditions;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -33,6 +33,8 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeKind;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Examines the non-private interfaces of types defined in one or more
@@ -202,7 +204,12 @@ class InterfaceTypeAndConstantReferenceFinder {
        */
       @Override
       public Void visitIdentifier(IdentifierTree node, Void aVoid) {
-        Element currentElement = Preconditions.checkNotNull(getCurrentElement());
+        Element currentElement = getCurrentElement();
+        if (currentElement == null) {
+          // This can happen with the package name tree at compilation unit level
+          return null;
+        }
+
         ElementKind kind = currentElement.getKind();
         if (kind.isClass() || kind.isInterface()) {
           // Identifier represents a type (either imported, from the same package, or a member of
@@ -221,6 +228,11 @@ class InterfaceTypeAndConstantReferenceFinder {
       }
 
       private void reportType() {
+        TypeMirror currentType = Preconditions.checkNotNull(getCurrentType());
+        if (currentType.getKind() != TypeKind.DECLARED) {
+          return;
+        }
+
         listener.onTypeReferenceFound(
             (TypeElement) Preconditions.checkNotNull(getCurrentElement()),
             getCurrentPath(),

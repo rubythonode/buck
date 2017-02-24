@@ -22,10 +22,10 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -35,7 +35,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
@@ -47,8 +46,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.Reader;
-import java.io.StringReader;
 import java.math.BigInteger;
 import java.nio.file.CopyOption;
 import java.nio.file.FileAlreadyExistsException;
@@ -310,7 +307,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     return this;
   }
 
-  private byte[] getFileBytes(Path path) {
+  protected byte[] getFileBytes(Path path) {
     return Preconditions.checkNotNull(fileContents.get(MorePaths.normalize(path)));
   }
 
@@ -448,25 +445,20 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
       throws IOException {
     Preconditions.checkState(isDirectory(pathRelativeToProjectRoot));
     final PathMatcher pathMatcher = FileSystems.getDefault().getPathMatcher("glob:" + globPattern);
-    return FluentIterable.from(fileContents.keySet()).filter(
-        input -> input.getParent().equals(pathRelativeToProjectRoot) &&
-            pathMatcher.matches(input.getFileName()))
-        .toSortedSet(
-            Ordering
-                .natural()
-                .onResultOf(
-                    new Function<Path, FileTime>() {
-                      @Override
-                      public FileTime apply(Path path) {
-                        try {
-                          return getLastModifiedTimeFetcher().getLastModifiedTime(path);
-                        } catch (IOException e) {
-                          throw new RuntimeException(e);
-                        }
-                      }
-                    })
-                .compound(Ordering.natural())
-                .reverse());
+
+    return fileContents.keySet().stream()
+        .filter(i -> i.getParent().equals(pathRelativeToProjectRoot) &&
+            pathMatcher.matches(i.getFileName()))
+        // Sort them in reverse order.
+        .sorted((f0, f1) -> {
+          try {
+            return getLastModifiedTimeFetcher().getLastModifiedTime(f1).compareTo(
+                getLastModifiedTimeFetcher().getLastModifiedTime(f0));
+          } catch (IOException e) {
+            throw new RuntimeException(e);
+          }
+        })
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 
   @Override
@@ -491,15 +483,6 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     }
     fileLastModifiedTimes.put(normalizedPath, time);
     return normalizedPath;
-  }
-
-  @Override
-  public void deleteRecursively(Path path) throws IOException {
-    if (!exists(path)) {
-      throw new NoSuchFileException(path.toString());
-    }
-
-    deleteRecursivelyIfExists(path);
   }
 
   @Override
@@ -632,18 +615,6 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
       return Optional.empty();
     }
     return Optional.of(new String(getFileBytes(path), Charsets.UTF_8));
-  }
-
-  /**
-   * Does not support symlinks.
-   */
-  @Override
-  public Optional<Reader> getReaderIfFileExists(Path path) {
-    Optional<String> content = readFileIfItExists(path);
-    if (!content.isPresent()) {
-      return Optional.empty();
-    }
-    return Optional.of((Reader) new StringReader(content.get()));
   }
 
   /**

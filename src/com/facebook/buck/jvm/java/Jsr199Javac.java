@@ -23,15 +23,11 @@ import com.facebook.buck.jvm.java.tracing.TranslatingJavacPhaseTracer;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Splitter;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -43,21 +39,14 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -66,7 +55,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 import javax.annotation.Nullable;
-import javax.annotation.processing.Processor;
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaCompiler;
@@ -123,7 +111,7 @@ public abstract class Jsr199Javac implements Javac {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableSet<String> safeAnnotationProcessors,
+      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Optional<Path> workingDirectory,
@@ -165,7 +153,7 @@ public abstract class Jsr199Javac implements Javac {
             context,
             invokingRule,
             options,
-            safeAnnotationProcessors,
+            annotationProcessors,
             javaSourceFilePaths,
             pathToSrcsList,
             compiler,
@@ -226,7 +214,7 @@ public abstract class Jsr199Javac implements Javac {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableSet<String> safeAnnotationProcessors,
+      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       JavaCompiler compiler,
@@ -272,7 +260,7 @@ public abstract class Jsr199Javac implements Javac {
           new FileManagerBootClasspathOracle(fileManager),
           abiGenerationMode == JavacOptions.AbiGenerationMode.SOURCE ?
               Diagnostic.Kind.ERROR :
-              Diagnostic.Kind.MANDATORY_WARNING);
+              Diagnostic.Kind.WARNING);
     }
 
     try {
@@ -290,14 +278,12 @@ public abstract class Jsr199Javac implements Javac {
           // this, then the evidence suggests that they get one polluted with Buck's own classpath,
           // which means that libraries that have dependencies on different versions of Buck's deps
           // may choke with novel errors that don't occur on the command line.
-          ProcessorBundle bundle = prepareProcessors(
+          AnnotationProcessorFactory processorFactory = new AnnotationProcessorFactory(
               context.getEventSink(),
               compiler.getClass().getClassLoader(),
               context.getClassLoaderCache(),
-              safeAnnotationProcessors,
-              invokingRule,
-              options)) {
-        compilationTask.setProcessors(bundle.processors);
+              invokingRule)) {
+        compilationTask.setProcessors(processorFactory.createProcessors(annotationProcessors));
 
         // Invoke the compilation and inspect the result.
         isSuccess = compilationTask.call();
@@ -359,128 +345,6 @@ public abstract class Jsr199Javac implements Javac {
     }
   }
 
-  private ProcessorBundle prepareProcessors(
-      JavacEventSink eventSink,
-      ClassLoader compilerClassLoader,
-      ClassLoaderCache classLoaderCache,
-      Set<String> safeAnnotationProcessors,
-      BuildTarget target,
-      List<String> options) {
-    String processorClassPath = null;
-    String processorNames = null;
-
-    Iterator<String> iterator = options.iterator();
-    while (iterator.hasNext()) {
-      String curr = iterator.next();
-      if ("-processorpath".equals(curr) && iterator.hasNext()) {
-        processorClassPath = iterator.next();
-      } else if ("-processor".equals(curr) && iterator.hasNext()) {
-        processorNames = iterator.next();
-      }
-    }
-
-    if (processorClassPath == null || processorNames == null) {
-      return new ProcessorBundle();
-    }
-
-    Iterable<String> rawPaths = Splitter.on(File.pathSeparator)
-        .omitEmptyStrings()
-        .split(processorClassPath);
-    URL[] urls = FluentIterable.from(rawPaths)
-        .transform(
-            pathRelativeToProjectRoot -> {
-              try {
-                return Paths.get(pathRelativeToProjectRoot).toUri().toURL();
-              } catch (MalformedURLException e) {
-                // The paths we're being given should have all been resolved from the file
-                // system already. We'd need to be unfortunate to get here. Bubble up a runtime
-                // exception.
-                throw new RuntimeException(e);
-              }
-            })
-        .toArray(URL.class);
-
-    List<String> names = Splitter.on(",")
-        .trimResults()
-        .omitEmptyStrings()
-        .splitToList(processorNames);
-
-    ProcessorBundle processorBundle = new ProcessorBundle();
-    setProcessorBundleClassLoader(
-        names,
-        urls,
-        compilerClassLoader,
-        classLoaderCache,
-        safeAnnotationProcessors,
-        target,
-        processorBundle);
-
-
-    for (String name : names) {
-      try {
-        LOG.debug("Loading %s from own classloader", name);
-
-        Class<? extends Processor> aClass =
-            Preconditions.checkNotNull(processorBundle.classLoader)
-                .loadClass(name)
-                .asSubclass(Processor.class);
-        processorBundle.processors.add(
-            new TracingProcessorWrapper(
-                eventSink,
-                target,
-                aClass.newInstance()));
-      } catch (ReflectiveOperationException e) {
-        // If this happens, then the build is really in trouble. Better warn the user.
-        throw new HumanReadableException(
-            "%s: javac unable to load annotation processor: %s",
-            target.getFullyQualifiedName(),
-            name);
-      }
-    }
-
-    return processorBundle;
-  }
-
-  @VisibleForTesting
-  void setProcessorBundleClassLoader(
-      List<String> processorNames,
-      URL[] processorClasspath,
-      ClassLoader baseClassLoader,
-      ClassLoaderCache classLoaderCache,
-      Set<String> safeAnnotationProcessors,
-      BuildTarget target,
-      ProcessorBundle processorBundle) {
-    // We can avoid lots of overhead in large builds by reusing the same classloader for annotation
-    // processors. However, some annotation processors use static variables in a way that assumes
-    // there is only one instance running in the process at a time (or at all), and such annotation
-    // processors would break running inside of Buck. So we default to creating a new ClassLoader
-    // for each build rule, with an option to whitelist "safe" processors in .buckconfig.
-    if (safeAnnotationProcessors.containsAll(processorNames)) {
-      LOG.debug("Reusing class loaders for %s.", target);
-      processorBundle.classLoader = (URLClassLoader) classLoaderCache.getClassLoaderForClassPath(
-          baseClassLoader,
-          ImmutableList.copyOf(processorClasspath));
-      processorBundle.closeClassLoader = false;
-    } else {
-      final List<String> unsafeProcessors = new ArrayList<>();
-      for (String name : processorNames) {
-        if (safeAnnotationProcessors.contains(name)) {
-          continue;
-        }
-        unsafeProcessors.add(name);
-      }
-      LOG.debug(
-          "Creating new class loader for %s because the following processors are not marked safe " +
-              "for multiple use in a single process: %s",
-          target,
-          Joiner.on(',').join(unsafeProcessors));
-      processorBundle.classLoader = new URLClassLoader(
-          processorClasspath,
-          baseClassLoader);
-      processorBundle.closeClassLoader = true;
-    }
-  }
-
   private Iterable<? extends JavaFileObject> createCompilationUnits(
       StandardJavaFileManager fileManager,
       Function<Path, Path> absolutifier,
@@ -533,22 +397,6 @@ public abstract class Jsr199Javac implements Javac {
     context.getEventSink().reportMissingJavaSymbol(invokingRule, symbol.get());
   }
 
-  @VisibleForTesting
-  static class ProcessorBundle implements Closeable {
-    @Nullable
-    public URLClassLoader classLoader;
-    public boolean closeClassLoader;
-    public List<Processor> processors = Lists.newArrayList();
-
-    @Override
-    public void close() throws IOException {
-      if (closeClassLoader && classLoader != null) {
-        classLoader.close();
-        classLoader = null;
-      }
-    }
-  }
-
   private static class FileManagerBootClasspathOracle implements BootClasspathOracle {
     private final JavaFileManager fileManager;
     private final Map<String, Set<String>> packagesContents = new HashMap<>();
@@ -590,7 +438,12 @@ public abstract class Jsr199Javac implements Javac {
     }
 
     private String getPackageName(String binaryName) {
-      return binaryName.substring(0, binaryName.lastIndexOf('.'));
+      int lastDot = binaryName.lastIndexOf('.');
+      if (lastDot < 0) {
+        return "";
+      }
+
+      return binaryName.substring(0, lastDot);
     }
   }
 }

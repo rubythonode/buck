@@ -34,6 +34,7 @@ import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.CounterRegistryImpl;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
+import com.facebook.buck.event.BuckInitializationDurationEvent;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
@@ -82,8 +83,11 @@ import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.RelativeCellName;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
+import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.test.TestConfig;
@@ -107,6 +111,7 @@ import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.WatchmanWatcherException;
@@ -119,7 +124,6 @@ import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
-import com.facebook.buck.util.environment.EnvironmentFilter;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
@@ -162,6 +166,7 @@ import java.net.URLClassLoader;
 import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileSystems;
 import java.nio.file.LinkOption;
@@ -336,7 +341,7 @@ public final class Main {
 
     private final Cell cell;
     private final Parser parser;
-    private final DefaultFileHashCache hashCache;
+    private final FileHashCache hashCache;
     private final FileHashCache buckOutHashCache;
     private final EventBus fileEventBus;
     private final Optional<WebServer> webServer;
@@ -344,6 +349,7 @@ public final class Main {
     private final VersionedTargetGraphCache versionedTargetGraphCache;
     private final ActionGraphCache actionGraphCache;
     private final BroadcastEventListener broadcastEventListener;
+    private final RuleKeyCacheRecycler<RuleKey> defaultRuleKeyFactoryCacheRecycler;
 
     private ImmutableMap<Path, WatchmanCursor> cursor;
 
@@ -352,12 +358,30 @@ public final class Main {
         ObjectMapper objectMapper,
         Optional<WebServer> webServerToReuse) {
       this.cell = cell;
-      this.hashCache = new WatchedFileHashCache(cell.getFilesystem());
-      this.buckOutHashCache =
-          DefaultFileHashCache.createBuckOutFileHashCache(
-              createProjectFilesystem(cell.getFilesystem().getRootPath()),
-              cell.getFilesystem().getBuckPaths().getBuckOut());
       this.fileEventBus = new EventBus("file-change-events");
+
+      // Collect all transitive cells.
+      ImmutableList.Builder<Cell> cellsBuilder = ImmutableList.builder();
+      cellsBuilder.add(cell);
+      cell.getCellPathResolver().getCellPaths().values().stream()
+          .map(cell::getCell)
+          .forEach(cellsBuilder::add);
+      ImmutableList<Cell> cells = cellsBuilder.build();
+
+      // Setup the stacked file hash cache from all cells.
+      ImmutableList.Builder<FileHashCache> hashCachesBuilder = ImmutableList.builder();
+      cells.forEach(
+          (Cell subCell) -> {
+            WatchedFileHashCache watchedCache = new WatchedFileHashCache(subCell.getFilesystem());
+            fileEventBus.register(watchedCache);
+            hashCachesBuilder.add(watchedCache);
+          });
+      ImmutableList<FileHashCache> hashCaches = hashCachesBuilder.build();
+      this.hashCache = new StackedFileHashCache(hashCaches);
+
+      this.buckOutHashCache = DefaultFileHashCache.createBuckOutFileHashCache(
+          cell.getFilesystem().replaceBlacklistedPaths(ImmutableSet.of()),
+          cell.getFilesystem().getBuckPaths().getBuckOut());
 
       this.broadcastEventListener = new BroadcastEventListener();
       this.actionGraphCache = new ActionGraphCache(broadcastEventListener);
@@ -371,7 +395,15 @@ public final class Main {
           new ConstructorArgMarshaller(typeCoercerFactory));
       fileEventBus.register(parser);
       fileEventBus.register(actionGraphCache);
-      fileEventBus.register(hashCache);
+
+      // Build the the rule key cache recycler.
+      this.defaultRuleKeyFactoryCacheRecycler =
+          RuleKeyCacheRecycler.createAndRegister(
+              fileEventBus,
+              new DefaultRuleKeyCache<>(),
+              RichStream.from(cells)
+                  .map(Cell::getFilesystem)
+                  .toImmutableSet());
 
       if (webServerToReuse.isPresent()) {
         webServer = webServerToReuse;
@@ -480,6 +512,10 @@ public final class Main {
 
     private ConcurrentMap<String, WorkerProcessPool> getPersistentWorkerPools() {
       return persistentWorkerPools;
+    }
+
+    public RuleKeyCacheRecycler<RuleKey> getDefaultRuleKeyFactoryCacheRecycler() {
+      return defaultRuleKeyFactoryCacheRecycler;
     }
 
     private void watchClient(final NGContext context) {
@@ -690,7 +726,10 @@ public final class Main {
   }
 
   /* Define all error handling surrounding main command */
-  private void runMainThenExit(String[] args, Optional<NGContext> context) {
+  private void runMainThenExit(
+      String[] args,
+      Optional<NGContext> context,
+      final long initTimestamp) {
     installUncaughtExceptionHandler(context);
 
     Path projectRoot = Paths.get(".");
@@ -716,6 +755,7 @@ public final class Main {
           clientEnvironment,
           commandMode,
           watchmanFreshInstanceAction,
+          initTimestamp,
           args);
     } catch (IOException e) {
       if (e.getMessage().startsWith("No space left on device")) {
@@ -760,7 +800,8 @@ public final class Main {
   /**
    * @param buildId an identifier for this command execution.
    * @param context an optional NGContext that is present if running inside a Nailgun server.
-   * @param args    command line arguments
+   * @param initTimestamp Value of System.nanoTime() when process got main()/nailMain() invoked.
+   * @param args command line arguments
    * @return an exit code or {@code null} if this is a process that should not exit
    */
   @SuppressWarnings("PMD.PrematureDeclaration")
@@ -771,6 +812,7 @@ public final class Main {
       ImmutableMap<String, String> clientEnvironment,
       CommandMode commandMode,
       WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction,
+      final long initTimestamp,
       String... args)
       throws IOException, InterruptedException {
 
@@ -833,12 +875,12 @@ public final class Main {
         clientEnvironment,
         cellPathResolver);
     ImmutableSet<Path> projectWatchList = ImmutableSet.<Path>builder()
-      .add(canonicalRootPath)
-      .addAll(
-          buckConfig.getView(ParserConfig.class).getWatchCells() ?
-              cellPathResolver.getTransitivePathMapping().values() :
-              ImmutableList.of())
-      .build();
+        .add(canonicalRootPath)
+        .addAll(
+            buckConfig.getView(ParserConfig.class).getWatchCells() ?
+                cellPathResolver.getTransitivePathMapping().values() :
+                ImmutableList.of())
+        .build();
     Optional<ImmutableList<String>> allowedJavaSpecificiationVersions =
         buckConfig.getAllowedJavaSpecificationVersions();
     if (allowedJavaSpecificiationVersions.isPresent()) {
@@ -1159,7 +1201,7 @@ public final class Main {
               commandEventListeners
           );
 
-          if (buckConfig.isPublicAnnouncementsEnabled()) {
+          if (commandMode == CommandMode.RELEASE && buckConfig.isPublicAnnouncementsEnabled()) {
             PublicAnnouncementManager announcementManager = new PublicAnnouncementManager(
                 clock,
                 buildEventBus,
@@ -1179,8 +1221,9 @@ public final class Main {
           if (command.subcommand instanceof AbstractCommand) {
             AbstractCommand subcommand = (AbstractCommand) command.subcommand;
             VersionControlBuckConfig vcBuckConfig = new VersionControlBuckConfig(buckConfig);
-            if (subcommand.isSourceControlStatsGatheringEnabled() ||
-                vcBuckConfig.shouldGenerateStatistics()) {
+            if (!commandMode.equals(CommandMode.TEST) && (
+                subcommand.isSourceControlStatsGatheringEnabled() ||
+                vcBuckConfig.shouldGenerateStatistics())) {
               vcStatsGenerator = new VersionControlStatsGenerator(
                   diskIoExecutorService,
                   new DefaultVersionControlCmdLineInterfaceFactory(
@@ -1208,6 +1251,8 @@ public final class Main {
           Parser parser = null;
           VersionedTargetGraphCache versionedTargetGraphCache = null;
           ActionGraphCache actionGraphCache = null;
+          Optional<RuleKeyCacheRecycler<RuleKey>> defaultRuleKeyFactoryCacheRecycler =
+              Optional.empty();
 
           if (isDaemon) {
             try {
@@ -1230,6 +1275,11 @@ public final class Main {
                   watchmanFreshInstanceAction);
               versionedTargetGraphCache = daemon.getVersionedTargetGraphCache();
               actionGraphCache = daemon.getActionGraphCache();
+              if (buckConfig.getRuleKeyCaching()) {
+                LOG.debug("Using rule key calculation caching");
+                defaultRuleKeyFactoryCacheRecycler =
+                    Optional.of(daemon.getDefaultRuleKeyFactoryCacheRecycler());
+              }
             } catch (WatchmanWatcherException | IOException e) {
               buildEventBus.post(
                   ConsoleEvent.warning(
@@ -1288,6 +1338,12 @@ public final class Main {
               buildEventBus.register(listener);
             }
           }
+
+          buildEventBus.post(
+              new BuckInitializationDurationEvent(
+                  TimeUnit.NANOSECONDS.toMillis(
+                      System.nanoTime() - initTimestamp)));
+
           try {
             exitCode = command.run(
                 CommandRunnerParams.builder()
@@ -1315,19 +1371,21 @@ public final class Main {
                     .setVersionedTargetGraphCache(versionedTargetGraphCache)
                     .setActionGraphCache(actionGraphCache)
                     .setKnownBuildRuleTypesFactory(factory)
+                    .setInvocationInfo(Optional.of(invocationInfo))
+                    .setDefaultRuleKeyFactoryCacheRecycler(defaultRuleKeyFactoryCacheRecycler)
                     .build());
           } catch (InterruptedException | ClosedByInterruptException e) {
             exitCode = INTERRUPTED_EXIT_CODE;
             buildEventBus.post(CommandEvent.interrupted(startedEvent, INTERRUPTED_EXIT_CODE));
             throw e;
           }
-            // We've reserved exitCode 2 for timeouts, and some commands (e.g. run) may violate this
+          // We've reserved exitCode 2 for timeouts, and some commands (e.g. run) may violate this
           // Let's avoid an infinite loop
           if (exitCode == BUSY_EXIT_CODE) {
-              exitCode = FAIL_EXIT_CODE; // Some loss of info here, but better than looping
-              LOG.error("Buck return with exit code %d which we use to indicate busy status. " +
-                  "This is probably propagating an exit code from a sub process or tool. " +
-                  "Coercing to %d to avoid retries.", BUSY_EXIT_CODE, FAIL_EXIT_CODE);
+            exitCode = FAIL_EXIT_CODE; // Some loss of info here, but better than looping
+            LOG.error("Buck return with exit code %d which we use to indicate busy status. " +
+                "This is probably propagating an exit code from a sub process or tool. " +
+                "Coercing to %d to avoid retries.", BUSY_EXIT_CODE, FAIL_EXIT_CODE);
           }
           // Wait for HTTP writes to complete.
           closeHttpExecutorService(
@@ -1444,7 +1502,7 @@ public final class Main {
 
       LOG.debug(
           "Watchman capabilities: %s Project watches: %s Glob handler config: %s " +
-          "Query timeout ms config: %s",
+              "Query timeout ms config: %s",
           watchman.getCapabilities(),
           watchman.getProjectWatches(),
           parserConfig.getGlobHandler(),
@@ -1602,13 +1660,11 @@ public final class Main {
    */
   @SuppressWarnings({"unchecked", "rawtypes"}) // Safe as Property is a Map<String, String>.
   private static ImmutableMap<String, String> getClientEnvironment(Optional<NGContext> context) {
-    ImmutableMap<String, String> env;
     if (context.isPresent()) {
-      env = ImmutableMap.<String, String>copyOf((Map) context.get().getEnv());
+      return ImmutableMap.<String, String>copyOf((Map) context.get().getEnv());
     } else {
-      env = ImmutableMap.copyOf(System.getenv());
+      return ImmutableMap.copyOf(System.getenv());
     }
-    return EnvironmentFilter.filteredEnvironment(env, Platform.detect());
   }
 
   private Parser getParserFromDaemon(
@@ -1891,7 +1947,8 @@ public final class Main {
   }
 
   public static void main(String[] args) {
-    new Main(System.out, System.err, System.in).runMainThenExit(args, Optional.empty());
+    new Main(System.out, System.err, System.in)
+        .runMainThenExit(args, Optional.empty(), System.nanoTime());
   }
 
   private static void markFdCloseOnExec(int fd) {
@@ -2060,8 +2117,8 @@ public final class Main {
           StandardOpenOption.WRITE,
           StandardOpenOption.CREATE);
       resourcesFileLock = fileChannel.tryLock(0L, Long.MAX_VALUE, true);
-    } catch (IOException e) {
-      LOG.error(e, "Error when attempting to acquire resources file lock.");
+    } catch (IOException | OverlappingFileLockException  e) {
+      LOG.debug(e, "Error when attempting to acquire resources file lock.");
     }
   }
 
@@ -2075,7 +2132,7 @@ public final class Main {
     try (IdleKiller.CommandExecutionScope ignored =
              DaemonBootstrap.getDaemonKillers().newCommandExecutionScope()) {
       new Main(context.out, context.err, context.in)
-          .runMainThenExit(context.getArgs(), Optional.of(context));
+          .runMainThenExit(context.getArgs(), Optional.of(context), System.nanoTime());
     }
   }
 }

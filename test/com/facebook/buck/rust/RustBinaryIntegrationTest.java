@@ -244,6 +244,19 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
+  public void binaryWithSharedLibrary() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_library", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace.runBuckCommand("run", "//:hello-shared").assertSuccess().getStdout(),
+        Matchers.allOf(
+            Matchers.containsString("Hello, world!"),
+            Matchers.containsString("I have a message to deliver to you")));
+  }
+
+  @Test
   public void binaryWithHyphenatedLibrary() throws IOException, InterruptedException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "binary_with_library", tmp);
@@ -321,6 +334,20 @@ public class RustBinaryIntegrationTest {
         workspace.runBuckCommand("run", "//:hello").assertSuccess().getStdout(),
         Matchers.allOf(
             Matchers.containsString("Hello, world!"),
+            Matchers.containsString("I have a message to deliver to you"),
+            Matchers.containsString("thing handled")));
+  }
+
+  @Test
+  public void binaryWithLibraryWithTriangleDep() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "binary_with_library_with_dep", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace.runBuckCommand("run", "//:transitive").assertSuccess().getStdout(),
+        Matchers.allOf(
+            Matchers.containsString("Hello from transitive"),
             Matchers.containsString("I have a message to deliver to you"),
             Matchers.containsString("thing handled")));
   }

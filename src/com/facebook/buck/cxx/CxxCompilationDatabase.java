@@ -18,16 +18,15 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
@@ -50,8 +49,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
 
-public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
-    implements HasRuntimeDeps {
+public class CxxCompilationDatabase extends AbstractBuildRule implements HasRuntimeDeps {
   private static final Logger LOG = Logger.get(CxxCompilationDatabase.class);
   public static final Flavor COMPILATION_DATABASE = ImmutableFlavor.of("compilation-database");
   public static final Flavor UBER_COMPILATION_DATABASE =
@@ -62,11 +60,9 @@ public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
   @AddToRuleKey(stringify = true)
   private final Path outputJsonFile;
   private final ImmutableSortedSet<BuildRule> runtimeDeps;
-  private final SourcePathResolver pathResolver;
 
   public static CxxCompilationDatabase createCompilationDatabase(
       BuildRuleParams params,
-      SourcePathResolver pathResolver,
       Iterable<CxxPreprocessAndCompile> compileAndPreprocessRules) {
     ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
     ImmutableSortedSet.Builder<CxxPreprocessAndCompile> compileRules = ImmutableSortedSet
@@ -80,18 +76,15 @@ public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
         params.copyWithDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        pathResolver,
         compileRules.build(),
         deps.build());
   }
 
   CxxCompilationDatabase(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver pathResolver,
       ImmutableSortedSet<CxxPreprocessAndCompile> compileRules,
       ImmutableSortedSet<BuildRule> runtimeDeps) {
-    super(buildRuleParams, pathResolver);
-    this.pathResolver = pathResolver;
+    super(buildRuleParams);
     LOG.debug(
         "Creating compilation database %s with runtime deps %s",
         buildRuleParams.getBuildTarget(),
@@ -110,7 +103,9 @@ public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     steps.add(new MkdirStep(getProjectFilesystem(), outputJsonFile.getParent()));
-    steps.add(new GenerateCompilationCommandsJson());
+    steps.add(new GenerateCompilationCommandsJson(
+        context.getSourcePathResolver(),
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())));
     return steps.build();
   }
 
@@ -126,7 +121,7 @@ public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     // The compilation database contains commands which refer to a
     // particular state of generated header symlink trees/header map
     // files.
@@ -135,15 +130,20 @@ public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
     // cache hit on the (empty) output of the rule, we still fetch and
     // lay out the headers so the resulting compilation database can
     // be used.
-    return runtimeDeps.stream()
-        .map(HasBuildTarget::getBuildTarget)
-        .map(BuildTargetSourcePath::new);
+    return runtimeDeps.stream().map(BuildRule::getBuildTarget);
   }
 
   class GenerateCompilationCommandsJson extends AbstractExecutionStep {
 
-    public GenerateCompilationCommandsJson() {
+    private final SourcePathResolver pathResolver;
+    private final Path outputRelativePath;
+
+    public GenerateCompilationCommandsJson(
+        SourcePathResolver pathResolver,
+        Path outputRelativePath) {
       super("generate compile_commands.json");
+      this.pathResolver = pathResolver;
+      this.outputRelativePath = outputRelativePath;
     }
 
     @Override
@@ -169,7 +169,7 @@ public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
       String fileToCompile = inputFilesystem
           .resolve(pathResolver.getAbsolutePath(inputSourcePath))
           .toString();
-      ImmutableList<String> arguments = compileRule.getCommand();
+      ImmutableList<String> arguments = compileRule.getCommand(pathResolver);
       return CxxCompilationDatabaseEntry.of(
           inputFilesystem.getRootPath().toString(),
           fileToCompile,
@@ -180,7 +180,7 @@ public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
         Iterable<CxxCompilationDatabaseEntry> entries,
         ExecutionContext context) {
       try (OutputStream outputStream =
-               getProjectFilesystem().newFileOutputStream(getPathToOutput())) {
+               getProjectFilesystem().newFileOutputStream(outputRelativePath)) {
         ObjectMapper mapper = context.getObjectMapper();
         mapper.writeValue(outputStream, entries);
       } catch (IOException e) {
@@ -195,7 +195,7 @@ public class CxxCompilationDatabase extends AbstractBuildRuleWithResolver
       context.logError(
           throwable,
           "Failed writing to %s in %s.",
-          getPathToOutput(),
+          outputRelativePath,
           getBuildTarget());
     }
   }

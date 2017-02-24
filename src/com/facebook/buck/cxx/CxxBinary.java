@@ -17,19 +17,15 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -47,7 +43,7 @@ import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 public class CxxBinary
-    extends AbstractBuildRuleWithResolver
+    extends AbstractBuildRule
     implements BinaryBuildRule, NativeTestable, HasRuntimeDeps, ProvidesLinkedBinaryDeps,
                SupportsInputBasedRuleKey {
 
@@ -63,14 +59,13 @@ public class CxxBinary
   public CxxBinary(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       BuildRule linkRule,
       Tool executable,
       Iterable<FrameworkPath> frameworks,
       Iterable<BuildTarget> tests,
       BuildTarget platformlessTarget) {
-    super(params, resolver);
+    super(params);
     this.params = params;
     this.ruleResolver = ruleResolver;
     this.ruleFinder = ruleFinder;
@@ -163,10 +158,9 @@ public class CxxBinary
   // This rule just delegates to the output of the `CxxLink` rule and so needs that available at
   // runtime.  Model this via `HasRuntimeDeps`.
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     return Stream.concat(getDeclaredDeps().stream(), executable.getDeps(ruleFinder).stream())
-        .map(HasBuildTarget::getBuildTarget)
-        .map(BuildTargetSourcePath::new);
+        .map(BuildRule::getBuildTarget);
   }
 
 }

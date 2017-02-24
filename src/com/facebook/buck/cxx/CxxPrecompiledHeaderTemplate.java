@@ -16,7 +16,10 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableMap;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -25,8 +28,8 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.RichStream;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Optional;
 
 /**
  * Represents a precompilable header file, along with dependencies.
@@ -35,11 +38,12 @@ import com.google.common.collect.ImmutableSortedSet;
  * rule R uses a precompiled header rule P, then all of P's {@code deps} will get merged into
  * R's {@code deps} list.
  */
-public class CxxPrecompiledHeaderTemplate extends NoopBuildRule implements NativeLinkable {
+public class CxxPrecompiledHeaderTemplate
+    extends NoopBuildRule
+    implements NativeLinkable, CxxPreprocessorDep {
 
   public final BuildRuleParams params;
   public final BuildRuleResolver ruleResolver;
-  public final SourcePathResolver pathResolver;
   public final SourcePath sourcePath;
 
   /**
@@ -53,7 +57,6 @@ public class CxxPrecompiledHeaderTemplate extends NoopBuildRule implements Nativ
     super(buildRuleParams, pathResolver);
     this.params = buildRuleParams;
     this.ruleResolver = ruleResolver;
-    this.pathResolver = pathResolver;
     this.sourcePath = sourcePath;
   }
 
@@ -110,6 +113,37 @@ public class CxxPrecompiledHeaderTemplate extends NoopBuildRule implements Nativ
         getDeps(),
         Linker.LinkableDepType.SHARED,
         NativeLinkable.class::isInstance);
+  }
+
+  @Override
+  public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+    return RichStream.from(getDeps()).filter(CxxPreprocessorDep.class).toImmutableList();
+  }
+
+  @Override
+  public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
+    return Optional.empty();
+  }
+
+  @Override
+  public CxxPreprocessorInput getCxxPreprocessorInput(
+        CxxPlatform cxxPlatform,
+        HeaderVisibility headerVisibility) throws NoSuchBuildTargetException {
+    return CxxPreprocessorInput.EMPTY;
+  }
+
+  private final LoadingCache<
+          CxxPreprocessables.CxxPreprocessorInputCacheKey,
+          ImmutableMap<BuildTarget, CxxPreprocessorInput>
+        > transitiveCxxPreprocessorInputCache =
+      CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
+
+  @Override
+  public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
+        CxxPlatform cxxPlatform,
+        HeaderVisibility headerVisibility) throws NoSuchBuildTargetException {
+    return transitiveCxxPreprocessorInputCache.getUnchecked(
+        ImmutableCxxPreprocessorInputCacheKey.of(cxxPlatform, headerVisibility));
   }
 
 }

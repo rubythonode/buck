@@ -19,10 +19,15 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.rules.query.Query;
 
-public class CxxBinaryBuilder
-    extends
-    AbstractCxxSourceBuilder<CxxBinaryDescription.Arg, CxxBinaryDescription, CxxBinaryBuilder> {
+import java.util.Optional;
+
+public class CxxBinaryBuilder extends AbstractCxxSourceBuilder<
+    CxxBinaryDescription.Arg,
+    CxxBinaryDescription,
+    CxxBinary,
+    CxxBinaryBuilder> {
 
   public CxxBinaryBuilder(
       BuildTarget target,
@@ -61,6 +66,11 @@ public class CxxBinaryBuilder
 
   @Override
   protected CxxBinaryBuilder getThis() {
+    return this;
+  }
+
+  public CxxBinaryBuilder setDepQuery(Query depQuery) {
+    arg.depsQuery = Optional.of(depQuery);
     return this;
   }
 

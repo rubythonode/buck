@@ -26,6 +26,7 @@ import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -37,8 +38,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
-import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.annotations.VisibleForTesting;
@@ -50,6 +49,7 @@ import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+
 
 /**
  * Build rule for generating a file via a shell command. For example, to generate the katana
@@ -165,8 +165,9 @@ public class Genrule extends AbstractBuildRuleWithResolver
   }
 
   /** @return the absolute path to the output file */
-  public String getAbsoluteOutputFilePath() {
-    return getProjectFilesystem().resolve(getPathToOutput()).toString();
+  @VisibleForTesting
+  public String getAbsoluteOutputFilePath(SourcePathResolver pathResolver) {
+    return pathResolver.getAbsolutePath(getSourcePathToOutput()).toString();
   }
 
   @VisibleForTesting
@@ -179,6 +180,11 @@ public class Genrule extends AbstractBuildRuleWithResolver
     return pathToOutFile;
   }
 
+  @Override
+  public SourcePath getSourcePathToOutput() {
+    return new BuildTargetSourcePath(getBuildTarget(), getPathToOutput());
+  }
+
   protected void addEnvironmentVariables(
       SourcePathResolver pathResolver,
       ExecutionContext context,
@@ -189,7 +195,7 @@ public class Genrule extends AbstractBuildRuleWithResolver
             FluentIterable.from(srcs)
                 .transform(pathResolver::getAbsolutePath)
                 .transform(Object::toString)));
-    environmentVariablesBuilder.put("OUT", getAbsoluteOutputFilePath());
+    environmentVariablesBuilder.put("OUT", getAbsoluteOutputFilePath(pathResolver));
 
     environmentVariablesBuilder.put(
         "GEN_DIR",
@@ -319,18 +325,10 @@ public class Genrule extends AbstractBuildRuleWithResolver
 
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
-    // Delete the old output for this rule, if it exists.
-    commands.add(
-        new RmStep(
-            getProjectFilesystem(),
-            getPathToOutput(),
-            RmStep.Mode.FORCED,
-            RmStep.Mode.RECURSIVE));
-
-    // Make sure that the directory to contain the output file exists. Rules get output to a
-    // directory named after the base path, so we don't want to nuke the entire directory.
-    commands.add(new MkdirStep(getProjectFilesystem(), pathToOutDirectory));
-
+    // Make sure that the directory to contain the output file exists, deleting any pre-existing
+    // ones. Rules get output to a directory named after the base path, so we don't want to nuke
+    // the entire directory.
+    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToOutDirectory));
     // Delete the old temp directory
     commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToTmpDirectory));
     // Create a directory to hold all the source files.
@@ -345,8 +343,8 @@ public class Genrule extends AbstractBuildRuleWithResolver
       commands.add(createGenruleStep(context));
     }
 
-    if (MorePaths.getFileExtension(getPathToOutput()).equals("zip")) {
-      commands.add(new ZipScrubberStep(getProjectFilesystem(), getPathToOutput()));
+    if (MorePaths.getFileExtension(pathToOutFile).equals("zip")) {
+      commands.add(new ZipScrubberStep(getProjectFilesystem(), pathToOutFile));
     }
 
     buildableContext.recordArtifact(pathToOutFile);

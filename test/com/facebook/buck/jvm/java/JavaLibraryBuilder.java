@@ -33,8 +33,8 @@ import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class JavaLibraryBuilder
-    extends AbstractNodeBuilder<JavaLibraryDescription.Arg, JavaLibraryDescription> {
+public class JavaLibraryBuilder extends
+    AbstractNodeBuilder<JavaLibraryDescription.Arg, JavaLibraryDescription, DefaultJavaLibrary> {
 
   private final ProjectFilesystem projectFilesystem;
 
@@ -111,7 +111,7 @@ public class JavaLibraryBuilder
     return addSrc(new BuildTargetSourcePath(target));
   }
 
-  public JavaLibraryBuilder setProguardConfig(Path proguardConfig) {
+  public JavaLibraryBuilder setProguardConfig(SourcePath proguardConfig) {
     arg.proguardConfig = Optional.of(proguardConfig);
     return this;
   }

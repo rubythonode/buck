@@ -34,7 +34,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
@@ -50,8 +49,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
-import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.MoreCollectors;
@@ -86,7 +83,7 @@ public class ApkGenruleTest {
 
     BuildTarget keystoreTarget =
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//keystore:debug");
-    Keystore keystore = (Keystore) KeystoreBuilder.createBuilder(keystoreTarget)
+    Keystore keystore = KeystoreBuilder.createBuilder(keystoreTarget)
         .setStore(new FakeSourcePath(filesystem, "keystore/debug.keystore"))
         .setProperties(new FakeSourcePath(filesystem, "keystore/debug.keystore.properties"))
         .build(ruleResolver, filesystem);
@@ -153,7 +150,7 @@ public class ApkGenruleTest {
             projectFilesystem.getBuckPaths().getGenDir().toString() +
              "/src/com/facebook/sign_fb4a/sign_fb4a.apk").toString();
     assertEquals(expectedApkOutput,
-        apkGenrule.getAbsoluteOutputFilePath());
+        apkGenrule.getAbsoluteOutputFilePath(pathResolver));
     assertEquals(
         "The apk that this rule is modifying must have the apk in its deps.",
         ImmutableSet.of(apkTarget.toString()),
@@ -170,65 +167,52 @@ public class ApkGenruleTest {
 
     // Verify that the shell commands that the genrule produces are correct.
     List<Step> steps = apkGenrule.getBuildSteps(buildContext, new FakeBuildableContext());
-    assertEquals(7, steps.size());
+    assertEquals(6, steps.size());
 
-    Step firstStep = steps.get(0);
-    assertTrue(firstStep instanceof RmStep);
-    RmStep rmCommand = (RmStep) firstStep;
     ExecutionContext executionContext = newEmptyExecutionContext();
-    assertEquals(
-        "First command should delete the output file to be written by the genrule.",
-        ImmutableList.of(
-            "rm",
-            "-r",
-            "-f",
-            expectedApkOutput),
-        rmCommand.getShellCommand());
-
-    Step secondStep = steps.get(1);
-    assertTrue(secondStep instanceof MkdirStep);
-    MkdirStep mkdirCommand = (MkdirStep) secondStep;
+    Step firstStep = steps.get(0);
+    assertTrue(firstStep instanceof MakeCleanDirectoryStep);
+    MakeCleanDirectoryStep mkdirCommand = (MakeCleanDirectoryStep) firstStep;
     Path mkdirDir =
-        projectFilesystem.resolve(
-            projectFilesystem.getBuckPaths().getGenDir().resolve("src/com/facebook/sign_fb4a"));
+        projectFilesystem.getBuckPaths().getGenDir().resolve("src/com/facebook/sign_fb4a");
     assertEquals(
-        "Second command should make sure the output directory exists.",
+        "First command should make sure the output directory exists and is empty.",
         mkdirDir,
         mkdirCommand.getPath());
 
-    Step thirdStep = steps.get(2);
-    assertTrue(thirdStep instanceof MakeCleanDirectoryStep);
-    MakeCleanDirectoryStep secondMkdirCommand = (MakeCleanDirectoryStep) thirdStep;
+    Step secondStep = steps.get(1);
+    assertTrue(secondStep instanceof MakeCleanDirectoryStep);
+    MakeCleanDirectoryStep secondMkdirCommand = (MakeCleanDirectoryStep) secondStep;
     Path relativePathToTmpDir = projectFilesystem.getBuckPaths().getGenDir().resolve(
         "src/com/facebook/sign_fb4a__tmp");
     assertEquals(
-        "Third command should make sure the temp directory exists.",
+        "Second command should make sure the temp directory exists.",
         relativePathToTmpDir,
         secondMkdirCommand.getPath());
 
-    Step fourthStep = steps.get(3);
-    assertTrue(fourthStep instanceof MakeCleanDirectoryStep);
-    MakeCleanDirectoryStep thirdMkdirCommand = (MakeCleanDirectoryStep) fourthStep;
+    Step thirdStep = steps.get(2);
+    assertTrue(thirdStep instanceof MakeCleanDirectoryStep);
+    MakeCleanDirectoryStep thirdMkdirCommand = (MakeCleanDirectoryStep) thirdStep;
     Path relativePathToSrcDir = projectFilesystem.getBuckPaths().getGenDir().resolve(
         "src/com/facebook/sign_fb4a__srcs");
     assertEquals(
-        "Fourth command should make sure the temp directory exists.",
+        "Third command should make sure the temp directory exists.",
         relativePathToSrcDir,
         thirdMkdirCommand.getPath());
 
-    MkdirAndSymlinkFileStep linkSource1 = (MkdirAndSymlinkFileStep) steps.get(4);
+    MkdirAndSymlinkFileStep linkSource1 = (MkdirAndSymlinkFileStep) steps.get(3);
     assertEquals(fileSystem.getPath("src/com/facebook/signer.py"), linkSource1.getSource());
     assertEquals(fileSystem.getPath(relativePathToSrcDir + "/signer.py"), linkSource1.getTarget());
 
-    MkdirAndSymlinkFileStep linkSource2 = (MkdirAndSymlinkFileStep) steps.get(5);
+    MkdirAndSymlinkFileStep linkSource2 = (MkdirAndSymlinkFileStep) steps.get(4);
     assertEquals(fileSystem.getPath("src/com/facebook/key.properties"), linkSource2.getSource());
     assertEquals(
         fileSystem.getPath(relativePathToSrcDir + "/key.properties"),
         linkSource2.getTarget());
 
-    Step seventhStep = steps.get(6);
-    assertTrue(seventhStep instanceof AbstractGenruleStep);
-    AbstractGenruleStep genruleCommand = (AbstractGenruleStep) seventhStep;
+    Step sixthStep = steps.get(5);
+    assertTrue(sixthStep instanceof AbstractGenruleStep);
+    AbstractGenruleStep genruleCommand = (AbstractGenruleStep) sixthStep;
     assertEquals("genrule", genruleCommand.getShortName());
     ImmutableMap<String, String> environmentVariables = genruleCommand.getEnvironmentVariables(
         executionContext);
@@ -255,25 +239,18 @@ public class ApkGenruleTest {
         .build();
   }
 
-  private static class FakeInstallable extends FakeBuildRule implements InstallableApk {
+  private static class FakeInstallable extends FakeBuildRule implements HasInstallableApk {
 
     public FakeInstallable(BuildTarget buildTarget, SourcePathResolver resolver) {
       super(buildTarget, resolver);
     }
 
     @Override
-    public Path getManifestPath() {
-      return Paths.get("spoof");
-    }
-
-    @Override
-    public Path getApkPath() {
-      return Paths.get("buck-out/gen/fb4a.apk");
-    }
-
-    @Override
-    public Optional<ExopackageInfo> getExopackageInfo() {
-      return Optional.empty();
+    public ApkInfo getApkInfo() {
+      return ApkInfo.builder()
+          .setApkPath(new FakeSourcePath("buck-out/gen/fb4a.apk"))
+          .setManifestPath(new FakeSourcePath("spoof"))
+          .build();
     }
   }
 }

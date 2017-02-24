@@ -20,6 +20,7 @@ import com.google.common.collect.Maps;
 
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -28,13 +29,15 @@ import java.util.SortedMap;
 
 import javax.annotation.Nullable;
 
-class AnnotationMirror extends AnnotationVisitor implements Comparable<AnnotationMirror> {
+class AnnotationMirror
+    extends AnnotationVisitor
+    implements Comparable<AnnotationMirror> {
   private final SortedMap<String, AnnotationValueMirror> values;
-  private final String desc;
-  private final boolean visible;
+  protected final String desc;
+  protected final boolean visible;
 
-  public AnnotationMirror(String desc, boolean visible) {
-    super(Opcodes.ASM5);
+  public AnnotationMirror(String desc, boolean visible, AnnotationVisitor annotationVisitor) {
+    super(Opcodes.ASM5, annotationVisitor);
 
     this.desc = desc;
     this.visible = visible;
@@ -43,25 +46,30 @@ class AnnotationMirror extends AnnotationVisitor implements Comparable<Annotatio
 
   @Override
   public void visit(String name, Object value) {
+    super.visit(name, value);
     this.values.put(name, AnnotationValueMirror.forPrimitive(value));
   }
 
   @Override
   public void visitEnum(String name, String desc, String value) {
+    super.visitEnum(name, desc, value);
     this.values.put(name, AnnotationValueMirror.forEnum(desc, value));
   }
 
   @Override
   public AnnotationVisitor visitArray(String name) {
-    AnnotationValueMirror array = AnnotationValueMirror.forArray();
+    AnnotationValueMirror array = AnnotationValueMirror.forArray(super.visitArray(name));
     this.values.put(name, array);
     return array;  // Caller will use this to fill in the array
   }
 
   @Override
   public AnnotationVisitor visitAnnotation(String name, String desc) {
-    AnnotationMirror annotation = new AnnotationMirror(desc, true);
-    this.values.put(name, AnnotationValueMirror.forAnnotation(annotation));
+    AnnotationMirror annotation = new AnnotationMirror(
+        desc,
+        true,
+        super.visitAnnotation(name, desc));
+    this.values.put(name, AnnotationValueMirror.forAnnotation(annotation, av));
     return annotation;
   }
 
@@ -86,6 +94,12 @@ class AnnotationMirror extends AnnotationVisitor implements Comparable<Annotatio
     return desc.compareTo(o.desc);
   }
 
+  public void appendTo(FieldVisitor field) {
+    AnnotationVisitor visitor = field.visitAnnotation(desc, visible);
+    visitValues(visitor);
+    visitor.visitEnd();
+  }
+
   public void appendTo(MethodVisitor method) {
     AnnotationVisitor visitor = method.visitAnnotation(desc, visible);
     visitValues(visitor);
@@ -98,7 +112,7 @@ class AnnotationMirror extends AnnotationVisitor implements Comparable<Annotatio
     visitor.visitEnd();
   }
 
-  private void visitValues(AnnotationVisitor visitor) {
+  protected final void visitValues(AnnotationVisitor visitor) {
     for (Map.Entry<String, AnnotationValueMirror> entry : values.entrySet()) {
       entry.getValue().accept(entry.getKey(), visitor);
     }

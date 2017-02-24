@@ -9,7 +9,7 @@
       "//src/com/facebook/buck/util:exceptions",
       "//src/com/facebook/buck/util:process_executor",
       "//src/com/facebook/buck/util:util",
-      "//third-party/java/immutables:processor"
+      "//third-party/java/immutables:immutables"
     ],
     "exported_deps" : [
       "//src/com/facebook/buck/cli:config",
@@ -27,6 +27,7 @@
       "//src/com/facebook/buck/step:step",
       "//src/com/facebook/buck/util/environment:platform",
       "//src/com/facebook/buck/util/immutables:immutables",
+      "//src/com/facebook/buck/versions:versions",
       "//third-party/java/guava:guava",
       "//third-party/java/infer-annotations:infer-annotations",
       "//third-party/java/jsr:jsr305"

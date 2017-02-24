@@ -21,8 +21,10 @@ import com.facebook.buck.artifact_cache.ArtifactInfo;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.event.ArtifactCompressionEvent;
+import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
@@ -30,13 +32,10 @@ import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Pair;
-import com.facebook.buck.rules.keys.DefaultDependencyFileRuleKeyFactory;
-import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.DependencyFileEntry;
-import com.facebook.buck.rules.keys.DependencyFileRuleKeyFactory;
-import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
-import com.facebook.buck.rules.keys.RuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyAndInputs;
+import com.facebook.buck.rules.keys.RuleKeyFactories;
+import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
 import com.facebook.buck.rules.keys.SizeLimiter;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
@@ -63,8 +62,6 @@ import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -155,11 +152,12 @@ public class CachingBuildEngine implements BuildEngine {
   private final DepFiles depFiles;
   private final long maxDepFileCacheEntries;
   private final ObjectMapper objectMapper;
+  private final BuildRuleResolver resolver;
   private final SourcePathRuleFinder ruleFinder;
   private final SourcePathResolver pathResolver;
   private final Optional<Long> artifactCacheSizeLimit;
   private final LoadingCache<ProjectFilesystem, FileHashCache> fileHashCaches;
-  private final LoadingCache<ProjectFilesystem, RuleKeyFactories> ruleKeyFactories;
+  private final java.util.function.Function<ProjectFilesystem, RuleKeyFactories> ruleKeyFactories;
   private final ResourceAwareSchedulingInfo resourceAwareSchedulingInfo;
 
   private final RuleDepsCache ruleDeps;
@@ -174,11 +172,10 @@ public class CachingBuildEngine implements BuildEngine {
       DepFiles depFiles,
       long maxDepFileCacheEntries,
       Optional<Long> artifactCacheSizeLimit,
-      final long inputRuleKeyFileSizeLimit,
       ObjectMapper objectMapper,
       final BuildRuleResolver resolver,
-      final int keySeed,
-      ResourceAwareSchedulingInfo resourceAwareSchedulingInfo) {
+      ResourceAwareSchedulingInfo resourceAwareSchedulingInfo,
+      RuleKeyFactoryManager ruleKeyFactoryManager) {
     this.cachingBuildEngineDelegate = cachingBuildEngineDelegate;
 
     this.service = service;
@@ -189,26 +186,17 @@ public class CachingBuildEngine implements BuildEngine {
     this.maxDepFileCacheEntries = maxDepFileCacheEntries;
     this.artifactCacheSizeLimit = artifactCacheSizeLimit;
     this.objectMapper = objectMapper;
+    this.resolver = resolver;
     this.ruleFinder = new SourcePathRuleFinder(resolver);
     this.pathResolver = new SourcePathResolver(ruleFinder);
 
     this.fileHashCaches = cachingBuildEngineDelegate.createFileHashCacheLoader();
-    this.ruleKeyFactories = CacheBuilder.newBuilder()
-        .build(new CacheLoader<ProjectFilesystem, RuleKeyFactories>() {
-          @Override
-          public RuleKeyFactories load(@Nonnull ProjectFilesystem filesystem) throws Exception {
-            return RuleKeyFactories.build(
-                keySeed,
-                fileHashCaches.get(filesystem),
-                resolver,
-                inputRuleKeyFileSizeLimit);
-          }
-        });
+    this.ruleKeyFactories = ruleKeyFactoryManager.getProvider();
     this.resourceAwareSchedulingInfo = resourceAwareSchedulingInfo;
 
-    this.ruleDeps = new RuleDepsCache(service, ruleFinder);
+    this.ruleDeps = new RuleDepsCache(service, resolver);
     this.unskippedRulesTracker =
-        createUnskippedRulesTracker(buildMode, ruleDeps, ruleFinder, service);
+        createUnskippedRulesTracker(buildMode, ruleDeps, resolver, service);
   }
 
   /**
@@ -223,6 +211,7 @@ public class CachingBuildEngine implements BuildEngine {
       DepFiles depFiles,
       long maxDepFileCacheEntries,
       Optional<Long> artifactCacheSizeLimit,
+      BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
       final Function<? super ProjectFilesystem, RuleKeyFactories> ruleKeyFactoriesFunction,
@@ -237,22 +226,17 @@ public class CachingBuildEngine implements BuildEngine {
     this.maxDepFileCacheEntries = maxDepFileCacheEntries;
     this.artifactCacheSizeLimit = artifactCacheSizeLimit;
     this.objectMapper = ObjectMappers.newDefaultInstance();
+    this.resolver = resolver;
     this.ruleFinder = ruleFinder;
     this.pathResolver = pathResolver;
 
     this.fileHashCaches = cachingBuildEngineDelegate.createFileHashCacheLoader();
-    this.ruleKeyFactories = CacheBuilder.newBuilder()
-        .build(new CacheLoader<ProjectFilesystem, RuleKeyFactories>() {
-          @Override
-          public RuleKeyFactories load(@Nonnull  ProjectFilesystem filesystem) throws Exception {
-            return ruleKeyFactoriesFunction.apply(filesystem);
-          }
-        });
+    this.ruleKeyFactories = ruleKeyFactoriesFunction::apply;
     this.resourceAwareSchedulingInfo = resourceAwareSchedulingInfo;
 
-    this.ruleDeps = new RuleDepsCache(service, ruleFinder);
+    this.ruleDeps = new RuleDepsCache(service, resolver);
     this.unskippedRulesTracker =
-        createUnskippedRulesTracker(buildMode, ruleDeps, ruleFinder, service);
+        createUnskippedRulesTracker(buildMode, ruleDeps, resolver, service);
   }
 
   /**
@@ -271,13 +255,13 @@ public class CachingBuildEngine implements BuildEngine {
   private static Optional<UnskippedRulesTracker> createUnskippedRulesTracker(
       BuildMode buildMode,
       RuleDepsCache ruleDeps,
-      SourcePathRuleFinder ruleFinder,
+      BuildRuleResolver resolver,
       ListeningExecutorService service) {
     if (buildMode == BuildMode.DEEP || buildMode == BuildMode.POPULATE_FROM_REMOTE_CACHE) {
       // Those modes never skip rules, there is no need to track unskipped rules.
       return Optional.empty();
     }
-    return Optional.of(new UnskippedRulesTracker(ruleDeps, ruleFinder, service));
+    return Optional.of(new UnskippedRulesTracker(ruleDeps, resolver, service));
   }
 
   @VisibleForTesting
@@ -348,7 +332,7 @@ public class CachingBuildEngine implements BuildEngine {
             try (BuildRuleEvent.Scope scope = BuildRuleEvent.resumeSuspendScope(
                 buildContext.getEventBus(),
                 rule,
-                ruleKeyFactory.defaultRuleKeyFactory)) {
+                ruleKeyFactory.getDefaultRuleKeyFactory())) {
               executeCommandsNowThatDepsAreBuilt(
                   rule,
                   buildContext,
@@ -368,8 +352,7 @@ public class CachingBuildEngine implements BuildEngine {
       final BuildRule rule,
       final BuildEngineBuildContext context,
       final OnDiskBuildInfo onDiskBuildInfo,
-      final BuildInfoRecorder buildInfoRecorder,
-      final RuleKeyFactories ruleKeyFactory) {
+      final BuildInfoRecorder buildInfoRecorder) {
     return depResults -> {
       for (BuildResult depResult : depResults) {
         if (buildMode != BuildMode.POPULATE_FROM_REMOTE_CACHE &&
@@ -386,57 +369,84 @@ public class CachingBuildEngine implements BuildEngine {
         return Futures.immediateFuture(Optional.of(BuildResult.canceled(rule, firstFailure)));
       }
 
-      try (BuildRuleEvent.Scope scope = BuildRuleCacheEvent.startCacheCheckScope(
-          context.getEventBus(), rule, BuildRuleCacheEvent.CacheStepType.INPUT_BASED)) {
-        // Input-based rule keys.
-        Optional<BuildResult> inputResult = performInputBasedCacheFetch(
-            rule,
-            context,
-            onDiskBuildInfo,
-            buildInfoRecorder,
-            ruleKeyFactory);
+      // Handle input-based rule keys.
+      if (SupportsInputBasedRuleKey.isSupported(rule)) {
 
-        if (inputResult.isPresent()) {
-          return Futures.immediateFuture(inputResult);
-        }
-      }
+        // Calculate input-based rule key.
+        Optional<RuleKey> inputRuleKey = calculateInputBasedRuleKey(rule, context.getEventBus());
+        if (inputRuleKey.isPresent()) {
 
-      try (BuildRuleEvent.Scope scope = BuildRuleCacheEvent.startCacheCheckScope(
-          context.getEventBus(), rule, BuildRuleCacheEvent.CacheStepType.DEPFILE_BASED)) {
-        // Dep-file rule keys.
-        if (useDependencyFileRuleKey(rule)) {
-          // Try to get the current dep-file rule key.
-          Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> depFileRuleKeyAndInputs =
-              calculateDepFileRuleKey(
-                  rule,
-                  onDiskBuildInfo.getValues(BuildInfo.MetadataKey.DEP_FILE),
-                /* allowMissingInputs */ true);
-          if (depFileRuleKeyAndInputs.isPresent()) {
-            RuleKey depFileRuleKey = depFileRuleKeyAndInputs.get().getFirst();
-            buildInfoRecorder.addBuildMetadata(
-                BuildInfo.MetadataKey.DEP_FILE_RULE_KEY,
-                depFileRuleKey.toString());
+          // Perform the cache fetch.
+          try (BuckEvent.Scope scope = BuildRuleCacheEvent.startCacheCheckScope(
+              context.getEventBus(), rule, BuildRuleCacheEvent.CacheStepType.INPUT_BASED)) {
+            // Input-based rule keys.
+            Optional<BuildResult> inputResult = performInputBasedCacheFetch(
+                rule,
+                context,
+                onDiskBuildInfo,
+                buildInfoRecorder,
+                inputRuleKey.get());
 
-            // Check the input-based rule key says we're already built.
-            Optional<RuleKey> lastDepFileRuleKey =
-                onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY);
-            if (lastDepFileRuleKey.isPresent() &&
-                depFileRuleKey.equals(lastDepFileRuleKey.get())) {
-              return Futures.immediateFuture(Optional.of(
-                  BuildResult.success(
-                      rule,
-                      BuildRuleSuccessType.MATCHING_DEP_FILE_RULE_KEY,
-                      CacheResult.localKeyUnchangedHit())));
+            if (inputResult.isPresent()) {
+              return Futures.immediateFuture(inputResult);
             }
           }
         }
 
-        // Manifest caching
-        Optional<BuildResult> manifestResult =
-            performManifestBasedCacheFetch(rule, context, buildInfoRecorder);
+      }
 
-        if (manifestResult.isPresent()) {
-          return Futures.immediateFuture(manifestResult);
+      // Dep-file rule keys.
+      if (useDependencyFileRuleKey(rule)) {
+
+        // Try to get the current dep-file rule key.
+        Optional<RuleKeyAndInputs> depFileRuleKeyAndInputs =
+            calculateDepFileRuleKey(
+                rule,
+                context,
+                onDiskBuildInfo.getValues(BuildInfo.MetadataKey.DEP_FILE),
+                /* allowMissingInputs */ true);
+        if (depFileRuleKeyAndInputs.isPresent()) {
+          RuleKey depFileRuleKey = depFileRuleKeyAndInputs.get().getRuleKey();
+          buildInfoRecorder.addBuildMetadata(
+              BuildInfo.MetadataKey.DEP_FILE_RULE_KEY,
+              depFileRuleKey.toString());
+
+          // Check the input-based rule key says we're already built.
+          Optional<RuleKey> lastDepFileRuleKey =
+              onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY);
+          if (lastDepFileRuleKey.isPresent() &&
+              depFileRuleKey.equals(lastDepFileRuleKey.get())) {
+            return Futures.immediateFuture(Optional.of(
+                BuildResult.success(
+                    rule,
+                    BuildRuleSuccessType.MATCHING_DEP_FILE_RULE_KEY,
+                    CacheResult.localKeyUnchangedHit())));
+          }
+        }
+      }
+
+      // Manifest caching
+      if (useManifestCaching(rule)) {
+        Optional<RuleKeyAndInputs> manifestKey =
+            calculateManifestKey(rule, context.getEventBus());
+        if (manifestKey.isPresent()) {
+          buildInfoRecorder.addBuildMetadata(
+              BuildInfo.MetadataKey.MANIFEST_KEY,
+              manifestKey.get().getRuleKey().toString());
+          try (BuckEvent.Scope scope =
+                   BuildRuleCacheEvent.startCacheCheckScope(
+                       context.getEventBus(),
+                       rule,
+                       BuildRuleCacheEvent.CacheStepType.DEPFILE_BASED)) {
+            Optional<BuildResult> manifestResult =
+                performManifestBasedCacheFetch(
+                    rule,
+                    context,
+                    manifestKey.get());
+            if (manifestResult.isPresent()) {
+              return Futures.immediateFuture(manifestResult);
+            }
+          }
         }
       }
 
@@ -468,18 +478,17 @@ public class CachingBuildEngine implements BuildEngine {
       return Futures.immediateFuture(BuildResult.canceled(rule, firstFailure));
     }
 
-    final RuleKeyFactories ruleKeyFactory =
-        ruleKeyFactories.getUnchecked(rule.getProjectFilesystem());
+    final RuleKeyFactories ruleKeyFactory = ruleKeyFactories.apply(rule.getProjectFilesystem());
     try (BuildRuleEvent.Scope scope =
              BuildRuleEvent.resumeSuspendScope(
                  buildContext.getEventBus(),
                  rule,
-                 ruleKeyFactory.defaultRuleKeyFactory)) {
+                 ruleKeyFactory.getDefaultRuleKeyFactory())) {
 
       // 1. Check if it's already built.
       Optional<RuleKey> cachedRuleKey =
           onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.RULE_KEY);
-      final RuleKey defaultRuleKey = ruleKeyFactory.defaultRuleKeyFactory.build(rule);
+      final RuleKey defaultRuleKey = ruleKeyFactory.getDefaultRuleKeyFactory().build(rule);
       if (defaultRuleKey.equals(cachedRuleKey.orElse(null))) {
         return Futures.transform(
             markRuleAsUsed(rule, buildContext.getEventBus()),
@@ -552,7 +561,7 @@ public class CachingBuildEngine implements BuildEngine {
     // 4. Return to the current rule and check caches to see if we can avoid building
     // locally.
     AsyncFunction<List<BuildResult>, Optional<BuildResult>> checkCachesCallback =
-        checkCaches(rule, buildContext, onDiskBuildInfo, buildInfoRecorder, ruleKeyFactory);
+        checkCaches(rule, buildContext, onDiskBuildInfo, buildInfoRecorder);
 
     ListenableFuture<Optional<BuildResult>> checkCachesResult =
         Futures.transformAsync(
@@ -622,8 +631,7 @@ public class CachingBuildEngine implements BuildEngine {
       ExecutionContext executionContext,
       ConcurrentLinkedQueue<ListenableFuture<Void>> asyncCallbacks) {
 
-    final RuleKeyFactories keyFactories =
-        ruleKeyFactories.getUnchecked(rule.getProjectFilesystem());
+    final RuleKeyFactories keyFactories = ruleKeyFactories.apply(rule.getProjectFilesystem());
     final FileHashCache fileHashCache = fileHashCaches.getUnchecked(rule.getProjectFilesystem());
     final OnDiskBuildInfo onDiskBuildInfo =
         buildContext.createOnDiskBuildInfoFor(
@@ -633,7 +641,7 @@ public class CachingBuildEngine implements BuildEngine {
         buildContext.createBuildInfoRecorder(rule.getBuildTarget(), rule.getProjectFilesystem())
             .addBuildMetadata(
                 BuildInfo.MetadataKey.RULE_KEY,
-                keyFactories.defaultRuleKeyFactory.build(rule).toString());
+                keyFactories.getDefaultRuleKeyFactory().build(rule).toString());
     final BuildableContext buildableContext = new DefaultBuildableContext(buildInfoRecorder);
     final AtomicReference<Long> outputSize = Atomics.newReference();
 
@@ -689,7 +697,7 @@ public class CachingBuildEngine implements BuildEngine {
             if (rule instanceof HasPostBuildSteps) {
               executePostBuildSteps(
                   rule,
-                  ((HasPostBuildSteps) rule).getPostBuildSteps(),
+                  ((HasPostBuildSteps) rule).getPostBuildSteps(buildContext.getBuildContext()),
                   executionContext);
             }
 
@@ -722,36 +730,32 @@ public class CachingBuildEngine implements BuildEngine {
                 inputStrings);
 
             // Re-calculate and store the depfile rule key for next time.
-            Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> depFileRuleKeyAndInputs =
+            Optional<RuleKeyAndInputs> depFileRuleKeyAndInputs =
                 calculateDepFileRuleKey(
                     rule,
+                    buildContext,
                     Optional.of(inputStrings),
                     /* allowMissingInputs */ false);
             if (depFileRuleKeyAndInputs.isPresent()) {
-              RuleKey depFileRuleKey = depFileRuleKeyAndInputs.get().getFirst();
+              RuleKey depFileRuleKey = depFileRuleKeyAndInputs.get().getRuleKey();
               buildInfoRecorder.addBuildMetadata(
                   BuildInfo.MetadataKey.DEP_FILE_RULE_KEY,
                   depFileRuleKey.toString());
 
               // Push an updated manifest to the cache.
               if (useManifestCaching(rule)) {
-                final Pair<RuleKey, ImmutableSet<SourcePath>> manifestKey;
-                try {
-                  manifestKey =
-                    ruleKeyFactories.getUnchecked(rule.getProjectFilesystem())
-                        .depFileRuleKeyFactory.buildManifestKey(
-                            (SupportsDependencyFileRuleKey) rule);
+                Optional<RuleKeyAndInputs> manifestKey =
+                  calculateManifestKey(rule, buildContext.getEventBus());
+                if (manifestKey.isPresent()) {
                   buildInfoRecorder.addBuildMetadata(
                       BuildInfo.MetadataKey.MANIFEST_KEY,
-                      manifestKey.getFirst().toString());
+                      manifestKey.get().getRuleKey().toString());
                   updateAndStoreManifest(
                       rule,
-                      depFileRuleKeyAndInputs.get().getFirst(),
-                      depFileRuleKeyAndInputs.get().getSecond(),
-                      manifestKey,
+                      depFileRuleKeyAndInputs.get().getRuleKey(),
+                      depFileRuleKeyAndInputs.get().getInputs(),
+                      manifestKey.get(),
                       buildContext.getArtifactCache());
-                } catch (SizeLimiter.SizeLimitException ex) { //NOPMD
-                  // if the input size limit was exceeded, we simply don't store the manifest
                 }
               }
             }
@@ -878,7 +882,7 @@ public class CachingBuildEngine implements BuildEngine {
                 // the artifact to cache using the new key.
                 if (success.shouldUploadResultingArtifact()) {
                   ruleKeys.add(
-                      keyFactories.defaultRuleKeyFactory.build(rule));
+                      keyFactories.getDefaultRuleKeyFactory().build(rule));
                 }
 
                 // If the input-based rule key has changed, we need to push the artifact to cache
@@ -939,7 +943,7 @@ public class CachingBuildEngine implements BuildEngine {
 
                 buildContext.getEventBus().logVerboseAndPost(
                     LOG,
-                    BuildRuleEvent.resumed(rule, keyFactories.defaultRuleKeyFactory));
+                    BuildRuleEvent.resumed(rule, keyFactories.getDefaultRuleKeyFactory()));
 
                 if (input.getStatus() == BuildRuleStatus.FAIL) {
 
@@ -994,7 +998,7 @@ public class CachingBuildEngine implements BuildEngine {
                     BuildRuleEvent.finished(
                         rule,
                         BuildRuleKeys.builder()
-                            .setRuleKey(keyFactories.defaultRuleKeyFactory.build(rule))
+                            .setRuleKey(keyFactories.getDefaultRuleKeyFactory().build(rule))
                             .setInputRuleKey(
                                 onDiskBuildInfo.getRuleKey(
                                     BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY))
@@ -1097,9 +1101,10 @@ public class CachingBuildEngine implements BuildEngine {
     }
 
     // Collect any runtime deps we have into a list of futures.
-    Stream<SourcePath> runtimeDepPaths = ((HasRuntimeDeps) rule).getRuntimeDeps();
+    Stream<BuildTarget> runtimeDepPaths = ((HasRuntimeDeps) rule).getRuntimeDeps();
     List<ListenableFuture<BuildResult>> runtimeDepResults = Lists.newArrayList();
-    ImmutableSet<BuildRule> runtimeDeps = ruleFinder.filterBuildRuleInputs(runtimeDepPaths);
+    ImmutableSet<BuildRule> runtimeDeps = resolver.getAllRules(
+        runtimeDepPaths.collect(MoreCollectors.toImmutableSet()));
     for (BuildRule dep : runtimeDeps) {
       runtimeDepResults.add(
           getBuildRuleResultWithRuntimeDepsUnlocked(
@@ -1178,52 +1183,47 @@ public class CachingBuildEngine implements BuildEngine {
     return seen.size();
   }
 
-  private synchronized ListenableFuture<RuleKey> calculateRuleKey(
+  private ListenableFuture<RuleKey> calculateRuleKey(
       final BuildRule rule,
       final BuildEngineBuildContext context) {
-    ListenableFuture<RuleKey> ruleKey = ruleKeys.get(rule.getBuildTarget());
-    if (ruleKey == null) {
+    return ruleKeys.computeIfAbsent(
+        rule.getBuildTarget(),
+        target -> {
 
-      // Grab all the dependency rule key futures.  Since our rule key calculation depends on this
-      // one, we need to wait for them to complete.
-      ListenableFuture<List<RuleKey>> depKeys =
-          Futures.transformAsync(
-              ruleDeps.get(rule),
-              deps -> {
-                List<ListenableFuture<RuleKey>> depKeys1 =
-                    Lists.newArrayListWithExpectedSize(rule.getDeps().size());
-                for (BuildRule dep : deps) {
-                  depKeys1.add(calculateRuleKey(dep, context));
+          // Grab all the dependency rule key futures.  Since our rule key calculation depends on
+          // this one, we need to wait for them to complete.
+          ListenableFuture<List<RuleKey>> depKeys =
+              Futures.transformAsync(
+                  ruleDeps.get(rule),
+                  deps -> {
+                    List<ListenableFuture<RuleKey>> depKeys1 =
+                        Lists.newArrayListWithExpectedSize(rule.getDeps().size());
+                    for (BuildRule dep : deps) {
+                      depKeys1.add(calculateRuleKey(dep, context));
+                    }
+                    return Futures.allAsList(depKeys1);
+                  },
+                  serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
+
+          final RuleKeyFactories keyFactories = ruleKeyFactories.apply(rule.getProjectFilesystem());
+
+          // Setup a future to calculate this rule key once the dependencies have been calculated.
+          return Futures.transform(
+              depKeys,
+              new Function<List<RuleKey>, RuleKey>() {
+                @Override
+                public RuleKey apply(List<RuleKey> input) {
+                  try (BuildRuleEvent.Scope scope =
+                           BuildRuleEvent.ruleKeyCalculationScope(
+                               context.getEventBus(),
+                               rule,
+                               keyFactories.getDefaultRuleKeyFactory())) {
+                    return keyFactories.getDefaultRuleKeyFactory().build(rule);
+                  }
                 }
-                return Futures.allAsList(depKeys1);
               },
               serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
-
-      final RuleKeyFactories keyFactories =
-          ruleKeyFactories.getUnchecked(rule.getProjectFilesystem());
-
-      // Setup a future to calculate this rule key once the dependencies have been calculated.
-      ruleKey = Futures.transform(
-          depKeys,
-          new Function<List<RuleKey>, RuleKey>() {
-            @Override
-            public RuleKey apply(List<RuleKey> input) {
-              try (BuildRuleEvent.Scope scope =
-                       BuildRuleEvent.startSuspendScope(
-                           context.getEventBus(),
-                           rule,
-                           keyFactories.defaultRuleKeyFactory)) {
-                return keyFactories.defaultRuleKeyFactory.build(rule);
-              }
-            }
-          },
-          serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
-
-      // Record the rule key future.
-      ruleKeys.put(rule.getBuildTarget(), ruleKey);
-    }
-
-    return ruleKey;
+        });
   }
 
   @Override
@@ -1390,6 +1390,7 @@ public class CachingBuildEngine implements BuildEngine {
     @SuppressWarnings("PMD.PrematureDeclaration")
     long start = System.nanoTime();
 
+    buildContext.getEventBus().post(BuildRuleEvent.willBuildLocally(rule));
     cachingBuildEngineDelegate.onRuleAboutToBeBuilt(rule);
 
     // Get and run all of the commands.
@@ -1507,8 +1508,9 @@ public class CachingBuildEngine implements BuildEngine {
         ((SupportsDependencyFileRuleKey) rule).useDependencyFileRuleKeys();
   }
 
-  private Optional<Pair<RuleKey, ImmutableSet<SourcePath>>> calculateDepFileRuleKey(
+  private Optional<RuleKeyAndInputs> calculateDepFileRuleKey(
       BuildRule rule,
+      BuildEngineBuildContext context,
       Optional<ImmutableList<String>> depFile,
       boolean allowMissingInputs)
       throws IOException {
@@ -1526,12 +1528,19 @@ public class CachingBuildEngine implements BuildEngine {
         .map(MoreFunctions.fromJsonFunction(objectMapper, DependencyFileEntry.class))
         .collect(MoreCollectors.toImmutableList());
 
-    try {
-      return Optional.of(this.ruleKeyFactories.getUnchecked(rule.getProjectFilesystem())
-          .depFileRuleKeyFactory.build(((SupportsDependencyFileRuleKey) rule), inputs));
+    try (BuckEvent.Scope scope =
+             RuleKeyCalculationEvent.scope(
+                 context.getEventBus(),
+                 RuleKeyCalculationEvent.Type.DEP_FILE)) {
+      return Optional.of(this.ruleKeyFactories.apply(rule.getProjectFilesystem())
+          .getDepFileRuleKeyFactory().build(((SupportsDependencyFileRuleKey) rule), inputs));
     } catch (SizeLimiter.SizeLimitException ex) {
       return Optional.empty();
-    } catch (NoSuchFileException e) {
+    } catch (Exception e) {
+      // TODO(plamenko): fix exception propagation in RuleKeyBuilder
+      if (!(Throwables.getRootCause(e) instanceof NoSuchFileException)) {
+        throw e;
+      }
       if (!allowMissingInputs) {
         throw e;
       }
@@ -1547,14 +1556,10 @@ public class CachingBuildEngine implements BuildEngine {
 
   @VisibleForTesting
   protected Optional<RuleKey> getManifestRuleKey(
-      SupportsDependencyFileRuleKey rule) throws IOException {
-    try {
-      return Optional.of(
-          ruleKeyFactories.getUnchecked(rule.getProjectFilesystem())
-            .depFileRuleKeyFactory.buildManifestKey(rule).getFirst());
-    } catch (SizeLimiter.SizeLimitException ex) {
-      return Optional.empty();
-    }
+      SupportsDependencyFileRuleKey rule,
+      BuckEventBus eventBus)
+      throws IOException {
+    return calculateManifestKey(rule, eventBus).map(RuleKeyAndInputs::getRuleKey);
   }
 
   // Update the on-disk manifest with the new dep-file rule key and push it to the cache.
@@ -1562,7 +1567,7 @@ public class CachingBuildEngine implements BuildEngine {
       BuildRule rule,
       RuleKey key,
       ImmutableSet<SourcePath> inputs,
-      Pair<RuleKey, ImmutableSet<SourcePath>> manifestKey,
+      RuleKeyAndInputs manifestKey,
       ArtifactCache cache)
       throws IOException {
 
@@ -1594,7 +1599,7 @@ public class CachingBuildEngine implements BuildEngine {
         fileHashCaches.getUnchecked(rule.getProjectFilesystem()),
         key,
         pathResolver,
-        manifestKey.getSecond(),
+        manifestKey.getInputs(),
         inputs);
 
     // Serialize the manifest to disk.
@@ -1614,7 +1619,7 @@ public class CachingBuildEngine implements BuildEngine {
     }
     cache
         .store(
-            ArtifactInfo.builder().addRuleKeys(manifestKey.getFirst()).build(),
+            ArtifactInfo.builder().addRuleKeys(manifestKey.getRuleKey()).build(),
             BorrowablePath.borrowablePath(tempFile))
         .addListener(
             () -> {
@@ -1630,27 +1635,27 @@ public class CachingBuildEngine implements BuildEngine {
             MoreExecutors.directExecutor());
   }
 
+  private Optional<RuleKeyAndInputs> calculateManifestKey(
+      BuildRule rule,
+      BuckEventBus eventBus)
+      throws IOException {
+    try (BuckEvent.Scope scope =
+             RuleKeyCalculationEvent.scope(eventBus, RuleKeyCalculationEvent.Type.MANIFEST)) {
+      return Optional.of(
+          ruleKeyFactories.apply(rule.getProjectFilesystem())
+              .getDepFileRuleKeyFactory().buildManifestKey((SupportsDependencyFileRuleKey) rule));
+    } catch (SizeLimiter.SizeLimitException ex) {
+      return Optional.empty();
+    }
+  }
+
   // Fetch an artifact from the cache using manifest-based caching.
   private Optional<BuildResult> performManifestBasedCacheFetch(
       final BuildRule rule,
       final BuildEngineBuildContext context,
-      final BuildInfoRecorder buildInfoRecorder)
+      RuleKeyAndInputs manifestKey)
       throws IOException {
-    if (!useManifestCaching(rule)) {
-      return Optional.empty();
-    }
-
-    final Pair<RuleKey, ImmutableSet<SourcePath>> manifestKey;
-    try {
-      manifestKey =
-          ruleKeyFactories.getUnchecked(rule.getProjectFilesystem())
-              .depFileRuleKeyFactory.buildManifestKey((SupportsDependencyFileRuleKey) rule);
-    } catch (SizeLimiter.SizeLimitException ex) {
-      return Optional.empty();
-    }
-    buildInfoRecorder.addBuildMetadata(
-        BuildInfo.MetadataKey.MANIFEST_KEY,
-        manifestKey.getFirst().toString());
+    Preconditions.checkArgument(useManifestCaching(rule));
 
     final LazyPath tempFile = new LazyPath() {
       @Override
@@ -1660,7 +1665,7 @@ public class CachingBuildEngine implements BuildEngine {
     };
 
     CacheResult manifestResult = fetchArtifactForBuildable(
-        manifestKey.getFirst(),
+        manifestKey.getRuleKey(),
         tempFile,
         context.getArtifactCache());
 
@@ -1696,7 +1701,7 @@ public class CachingBuildEngine implements BuildEngine {
         manifest.lookup(
             fileHashCaches.getUnchecked(rule.getProjectFilesystem()),
             pathResolver,
-            manifestKey.getSecond());
+            manifestKey.getInputs());
     if (!ruleKey.isPresent()) {
       return Optional.empty();
     }
@@ -1720,22 +1725,29 @@ public class CachingBuildEngine implements BuildEngine {
 
   }
 
+  private Optional<RuleKey> calculateInputBasedRuleKey(
+      BuildRule rule,
+      BuckEventBus eventBus) {
+    try (BuckEvent.Scope scope =
+             RuleKeyCalculationEvent.scope(
+                 eventBus,
+                 RuleKeyCalculationEvent.Type.INPUT)) {
+      return Optional.of(
+          ruleKeyFactories.apply(rule.getProjectFilesystem())
+              .getInputBasedRuleKeyFactory()
+              .build(rule));
+    } catch (SizeLimiter.SizeLimitException ex) {
+      return Optional.empty();
+    }
+  }
+
   private Optional<BuildResult> performInputBasedCacheFetch(
       final BuildRule rule,
       final BuildEngineBuildContext context,
       final OnDiskBuildInfo onDiskBuildInfo,
       BuildInfoRecorder buildInfoRecorder,
-      final RuleKeyFactories ruleKeyFactory) {
-    if (!SupportsInputBasedRuleKey.isSupported(rule)) {
-      return Optional.empty();
-    }
-
-    final RuleKey inputRuleKey;
-    try {
-      inputRuleKey = ruleKeyFactory.inputBasedRuleKeyFactory.build(rule);
-    } catch (SizeLimiter.SizeLimitException ex) {
-      return Optional.empty();
-    }
+      RuleKey inputRuleKey) {
+    Preconditions.checkArgument(SupportsInputBasedRuleKey.isSupported(rule));
 
     buildInfoRecorder.addBuildMetadata(
         BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY,
@@ -1824,60 +1836,15 @@ public class CachingBuildEngine implements BuildEngine {
       final BuckEventBus eventBus,
       final AsyncFunction<F, T> delegate) {
     return input -> {
-      RuleKeyFactories ruleKeyFactory =
-          ruleKeyFactories.getUnchecked(rule.getProjectFilesystem());
+      RuleKeyFactories ruleKeyFactory = ruleKeyFactories.apply(rule.getProjectFilesystem());
       try (BuildRuleEvent.Scope event =
                BuildRuleEvent.resumeSuspendScope(
                    eventBus,
                    rule,
-                   ruleKeyFactory.defaultRuleKeyFactory)) {
+                   ruleKeyFactory.getDefaultRuleKeyFactory())) {
         return delegate.apply(input);
       }
     };
   }
 
-  @VisibleForTesting
-  static class RuleKeyFactories {
-    public final RuleKeyFactory<RuleKey> defaultRuleKeyFactory;
-    public final RuleKeyFactory<RuleKey> inputBasedRuleKeyFactory;
-    public final DependencyFileRuleKeyFactory depFileRuleKeyFactory;
-
-    public static RuleKeyFactories build(
-        int seed,
-        FileHashCache fileHashCache,
-        BuildRuleResolver ruleResolver,
-        long inputRuleKeyFileSizeLimit) {
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-      SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-      DefaultRuleKeyFactory defaultRuleKeyFactory = new DefaultRuleKeyFactory(
-          seed,
-          fileHashCache,
-          pathResolver,
-          ruleFinder);
-
-      return new RuleKeyFactories(
-          defaultRuleKeyFactory,
-          new InputBasedRuleKeyFactory(
-              seed,
-              fileHashCache,
-              pathResolver,
-              ruleFinder,
-              inputRuleKeyFileSizeLimit),
-          new DefaultDependencyFileRuleKeyFactory(
-              seed,
-              fileHashCache,
-              pathResolver,
-              ruleFinder));
-    }
-
-    @VisibleForTesting
-    RuleKeyFactories(
-        RuleKeyFactory<RuleKey> defaultRuleKeyFactory,
-        RuleKeyFactory<RuleKey> inputBasedRuleKeyFactory,
-        DependencyFileRuleKeyFactory depFileRuleKeyFactory) {
-      this.defaultRuleKeyFactory = defaultRuleKeyFactory;
-      this.inputBasedRuleKeyFactory = inputBasedRuleKeyFactory;
-      this.depFileRuleKeyFactory = depFileRuleKeyFactory;
-    }
-  }
 }

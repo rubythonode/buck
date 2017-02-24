@@ -23,12 +23,12 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePaths;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 
 import java.io.File;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 
@@ -37,8 +37,22 @@ import java.util.stream.Collectors;
  * that target, expanding all paths to be absolute.
  */
 public class ClasspathMacroExpander
-    extends BuildTargetMacroExpander
+    extends BuildTargetMacroExpander<ClasspathMacro>
     implements MacroExpanderWithCustomFileOutput {
+
+  @Override
+  public Class<ClasspathMacro> getInputClass() {
+    return ClasspathMacro.class;
+  }
+
+  @Override
+  protected ClasspathMacro parse(
+      BuildTarget target,
+      CellPathResolver cellNames,
+      ImmutableList<String> input)
+      throws MacroException {
+    return ClasspathMacro.of(parseBuildTarget(target, cellNames, input));
+  }
 
   private HasClasspathEntries getHasClasspathEntries(BuildRule rule)
       throws MacroException {
@@ -56,7 +70,7 @@ public class ClasspathMacroExpander
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      BuildTarget input)
+      ClasspathMacro input)
       throws MacroException {
     return ImmutableList.copyOf(
         getHasClasspathEntries(resolve(resolver, input)).getTransitiveClasspathDeps());
@@ -82,8 +96,8 @@ public class ClasspathMacroExpander
     return getHasClasspathEntries(rule)
         .getTransitiveClasspathDeps()
         .stream()
-        .filter(dep -> dep.getPathToOutput() != null)
-        .map(dep -> dep.getProjectFilesystem().resolve(dep.getPathToOutput()))
+        .filter(dep -> dep.getSourcePathToOutput() != null)
+        .map(dep -> resolver.getAbsolutePath(dep.getSourcePathToOutput()))
         .map(Object::toString)
         .sorted(Ordering.natural())
         .collect(Collectors.joining(File.pathSeparator));
@@ -94,13 +108,13 @@ public class ClasspathMacroExpander
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      BuildTarget input)
+      ClasspathMacro input)
       throws MacroException {
     return ImmutableSortedSet.copyOf(getHasClasspathEntries(resolve(resolver, input))
         .getTransitiveClasspathDeps()
         .stream()
-        .filter(dep -> dep.getPathToOutput() != null)
-        .map(dep -> SourcePaths.getToBuildTargetSourcePath().apply(dep))
+        .map(BuildRule::getSourcePathToOutput)
+        .filter(Objects::nonNull)
         .collect(Collectors.toSet()));
   }
 

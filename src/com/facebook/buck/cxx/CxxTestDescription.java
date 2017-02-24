@@ -28,12 +28,12 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.versions.VersionRoot;
@@ -141,6 +141,7 @@ public class CxxTestDescription implements
     // Generate the link rule that builds the test binary.
     final CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
+            targetGraph,
             params,
             resolver,
             cxxBuckConfig,
@@ -152,7 +153,9 @@ public class CxxTestDescription implements
     // Construct the actual build params we'll use, notably with an added dependency on the
     // CxxLink rule above which builds the test binary.
     BuildRuleParams testParams =
-        params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder));
+        params
+            .copyWithDeps(() -> cxxLinkAndCompileRules.deps, params.getExtraDeps())
+            .appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder));
     testParams = CxxStrip.restoreStripStyleFlavorInParams(
         testParams,
         flavoredStripStyle);
@@ -281,8 +284,6 @@ public class CxxTestDescription implements
     // Extract parse time deps from flags, args, and environment parameters.
     Iterable<Iterable<String>> macroStrings =
         ImmutableList.<Iterable<String>>builder()
-            .add(constructorArg.linkerFlags)
-            .addAll(constructorArg.platformLinkerFlags.getValues())
             .add(constructorArg.args)
             .add(constructorArg.env.values())
             .build();
@@ -316,6 +317,11 @@ public class CxxTestDescription implements
         break;
       }
     }
+
+    constructorArg.depsQuery.ifPresent(
+        depsQuery ->
+            QueryUtils.extractParseTimeTargets(buildTarget, cellRoots, depsQuery)
+                .forEach(deps::add));
 
     return deps.build();
   }
@@ -379,7 +385,6 @@ public class CxxTestDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends CxxBinaryDescription.Arg {
     public ImmutableSet<String> contacts = ImmutableSet.of();
-    public ImmutableSet<Label> labels = ImmutableSet.of();
     public Optional<CxxTestType> framework;
     public ImmutableMap<String, String> env = ImmutableMap.of();
     public ImmutableList<String> args = ImmutableList.of();

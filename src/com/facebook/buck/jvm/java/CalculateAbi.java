@@ -19,7 +19,6 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -31,6 +30,7 @@ import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -40,7 +40,7 @@ import java.nio.file.Path;
 public class CalculateAbi extends AbstractBuildRule
     implements SupportsInputBasedRuleKey {
 
-  public static final Flavor FLAVOR = ImmutableFlavor.of("abi");
+  private static final Flavor FLAVOR = HasJavaAbi.ABI_FLAVOR;
 
   @AddToRuleKey
   private final SourcePath binaryJar;
@@ -52,6 +52,16 @@ public class CalculateAbi extends AbstractBuildRule
     super(buildRuleParams);
     this.binaryJar = binaryJar;
     this.outputPath = getAbiJarPath();
+  }
+
+  public static boolean isAbiTarget(BuildTarget target) {
+    return target.getFlavors().contains(FLAVOR);
+  }
+
+  public static BuildTarget getLibraryTarget(BuildTarget abiTarget) {
+    Preconditions.checkArgument(isAbiTarget(abiTarget));
+
+    return abiTarget.withoutFlavors(FLAVOR);
   }
 
   public static CalculateAbi of(
@@ -79,12 +89,12 @@ public class CalculateAbi extends AbstractBuildRule
       BuildableContext buildableContext) {
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), getAbiJarPath().getParent()),
-        new RmStep(getProjectFilesystem(), getAbiJarPath(), RmStep.Mode.FORCED),
+        new RmStep(getProjectFilesystem(), getAbiJarPath()),
         new CalculateAbiStep(
             buildableContext,
             getProjectFilesystem(),
             context.getSourcePathResolver().getAbsolutePath(binaryJar),
-            getPathToOutput()));
+            context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())));
   }
 
   @Override

@@ -23,6 +23,7 @@ import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -61,9 +62,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<BuildRule> exportedDeps,
       ImmutableSortedSet<BuildRule> providedDeps,
-      BuildTarget abiJar,
       ImmutableSortedSet<SourcePath> abiInputs,
-      ImmutableSet<Path> additionalClasspathEntries,
+      ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries,
       JavacOptions javacOptions,
       boolean trackClassUsage,
       CompileToJarStepFactory compileStepFactory,
@@ -82,7 +82,6 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         postprocessClassesCommands,
         exportedDeps,
         providedDeps,
-        abiJar,
         abiInputs,
         trackClassUsage,
         additionalClasspathEntries,

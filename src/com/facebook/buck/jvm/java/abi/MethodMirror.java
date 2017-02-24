@@ -23,6 +23,7 @@ import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.TypePath;
 
 import java.util.SortedSet;
 
@@ -35,12 +36,19 @@ class MethodMirror extends MethodVisitor implements Comparable<MethodMirror> {
   private final int access;
   private final String[] exceptions;
   private final SortedSet<AnnotationMirror> annotations;
+  private final SortedSet<TypeAnnotationMirror> typeAnnotations;
   private final AnnotationMirror[] parameterAnnotations;
   @Nullable private AnnotationDefaultValueMirror annotationDefault;
   private final String key;
 
-  public MethodMirror(int access, String name, String desc, String signature, String[] exceptions) {
-    super(Opcodes.ASM5);
+  public MethodMirror(
+      int access,
+      String name,
+      String desc,
+      String signature,
+      String[] exceptions,
+      MethodVisitor methodVisitor) {
+    super(Opcodes.ASM5, methodVisitor);
 
     this.access = access;
     this.name = name;
@@ -49,6 +57,7 @@ class MethodMirror extends MethodVisitor implements Comparable<MethodMirror> {
     this.exceptions = exceptions;
 
     this.annotations = Sets.newTreeSet();
+    this.typeAnnotations = Sets.newTreeSet();
 
     int paramCount = countParameters(desc);
     this.parameterAnnotations = new AnnotationMirror[paramCount];
@@ -110,21 +119,41 @@ class MethodMirror extends MethodVisitor implements Comparable<MethodMirror> {
 
   @Override
   public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
-    AnnotationMirror mirror = new AnnotationMirror(desc, visible);
+    AnnotationMirror mirror = new AnnotationMirror(desc, visible,
+        super.visitAnnotation(desc, visible));
     annotations.add(mirror);
     return mirror;
   }
 
   @Override
+  public AnnotationVisitor visitTypeAnnotation(
+      int typeRef,
+      TypePath typePath,
+      String desc,
+      boolean visible) {
+    TypeAnnotationMirror mirror = new TypeAnnotationMirror(
+        typeRef,
+        typePath,
+        desc,
+        visible,
+        super.visitTypeAnnotation(typeRef, typePath, desc, visible));
+    typeAnnotations.add(mirror);
+    return mirror;
+  }
+
+  @Override
   public AnnotationVisitor visitParameterAnnotation(int parameter, String desc, boolean visible) {
-    AnnotationMirror mirror = new AnnotationMirror(desc, visible);
+    AnnotationMirror mirror = new AnnotationMirror(
+        desc,
+        visible,
+        super.visitAnnotation(desc, visible));
     parameterAnnotations[parameter] = mirror;
     return mirror;
   }
 
   @Override
   public AnnotationVisitor visitAnnotationDefault() {
-    annotationDefault = new AnnotationDefaultValueMirror();
+    annotationDefault = new AnnotationDefaultValueMirror(super.visitAnnotationDefault());
     return annotationDefault;
   }
 
@@ -141,6 +170,9 @@ class MethodMirror extends MethodVisitor implements Comparable<MethodMirror> {
     MethodVisitor method = writer.visitMethod(access, name, desc, signature, exceptions);
     for (AnnotationMirror annotation : annotations) {
       annotation.appendTo(method);
+    }
+    for (TypeAnnotationMirror typeAnnotation: typeAnnotations) {
+      typeAnnotation.appendTo(method);
     }
     for (int i = 0; i < parameterAnnotations.length; i++) {
       AnnotationMirror annotation = parameterAnnotations[i];

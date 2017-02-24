@@ -18,15 +18,14 @@ package com.facebook.buck.apple;
 import com.facebook.buck.cxx.BuildRuleWithBinary;
 import com.facebook.buck.cxx.ProvidesLinkedBinaryDeps;
 import com.facebook.buck.file.WriteFile;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
@@ -70,7 +69,7 @@ public class AppleDebuggableBinary
     super(buildRuleParams, resolver);
     this.pathResolver = resolver;
     this.binaryRule = binaryRule;
-    this.binarySourcePath = new BuildTargetSourcePath(binaryRule.getBuildTarget());
+    this.binarySourcePath = Preconditions.checkNotNull(binaryRule.getSourcePathToOutput());
     performChecks(buildRuleParams, binaryRule);
   }
 
@@ -156,9 +155,7 @@ public class AppleDebuggableBinary
   }
 
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
-    return getDeclaredDeps().stream()
-        .map(HasBuildTarget::getBuildTarget)
-        .map(BuildTargetSourcePath::new);
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return getDeclaredDeps().stream().map(BuildRule::getBuildTarget);
   }
 }

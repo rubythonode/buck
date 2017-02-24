@@ -43,7 +43,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
@@ -922,7 +921,9 @@ public class ProjectCommand extends BuildCommand {
         isWithTests(params.getBuckConfig()),
         isWithDependenciesTests(params.getBuckConfig()),
         getCombinedProject(),
-        appleConfig.shouldUseHeaderMapsInXcodeProject());
+        appleConfig.shouldUseHeaderMapsInXcodeProject(),
+        appleConfig.shouldMergeHeaderMapsInXcodeProject(),
+        appleConfig.shouldGenerateHeaderSymlinkTreesOnly());
 
     boolean shouldBuildWithBuck = buildWithBuck ||
         shouldForceBuildingWithBuck(params.getBuckConfig(), passedInTargetsSet);
@@ -976,7 +977,7 @@ public class ProjectCommand extends BuildCommand {
     ImmutableSet<BuildTarget> targets;
     if (passedInTargetsSet.isEmpty()) {
       targets = targetGraphAndTargets.getProjectRoots().stream()
-          .map(HasBuildTarget::getBuildTarget)
+          .map(TargetNode::getBuildTarget)
           .collect(MoreCollectors.toImmutableSet());
     } else {
       targets = passedInTargetsSet;
@@ -1129,7 +1130,9 @@ public class ProjectCommand extends BuildCommand {
       boolean isWithTests,
       boolean isWithDependenciesTests,
       boolean isProjectsCombined,
-      boolean shouldUseHeaderMaps) {
+      boolean shouldUseHeaderMaps,
+      boolean shouldMergeHeaderMaps,
+      boolean shouldGenerateHeaderSymlinkTreesOnly) {
     ImmutableSet.Builder<ProjectGenerator.Option> optionsBuilder = ImmutableSet.builder();
     if (isReadonly) {
       optionsBuilder.add(ProjectGenerator.Option.GENERATE_READ_ONLY_FILES);
@@ -1147,6 +1150,12 @@ public class ProjectCommand extends BuildCommand {
     }
     if (!shouldUseHeaderMaps) {
       optionsBuilder.add(ProjectGenerator.Option.DISABLE_HEADER_MAPS);
+    }
+    if (shouldMergeHeaderMaps) {
+      optionsBuilder.add(ProjectGenerator.Option.MERGE_HEADER_MAPS);
+    }
+    if (shouldGenerateHeaderSymlinkTreesOnly) {
+      optionsBuilder.add(ProjectGenerator.Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY);
     }
     return optionsBuilder.build();
   }
@@ -1237,7 +1246,7 @@ public class ProjectCommand extends BuildCommand {
     return FluentIterable
         .from(projectGraph.getNodes())
         .filter(rootsPredicate)
-        .transform(HasBuildTarget::getBuildTarget)
+        .transform(TargetNode::getBuildTarget)
         .toSet();
   }
 
@@ -1311,7 +1320,7 @@ public class ProjectCommand extends BuildCommand {
             executor,
             Sets.union(
                 projectGraph.getNodes().stream()
-                    .map(HasBuildTarget::getBuildTarget)
+                    .map(TargetNode::getBuildTarget)
                     .collect(MoreCollectors.toImmutableSet()),
                 explicitTestTargets));
       }

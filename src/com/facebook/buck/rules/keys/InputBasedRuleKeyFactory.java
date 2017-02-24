@@ -25,10 +25,9 @@ import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -36,59 +35,70 @@ import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.Path;
 
-import javax.annotation.Nonnull;
-
 /**
  * A factory for generating input-based {@link RuleKey}s.
  *
  * @see SupportsInputBasedRuleKey
  */
-public final class InputBasedRuleKeyFactory
-    extends ReflectiveRuleKeyFactory<
-            InputBasedRuleKeyFactory.Builder,
-            RuleKey> {
+public final class InputBasedRuleKeyFactory implements RuleKeyFactory<RuleKey> {
 
+  private final RuleKeyFieldLoader ruleKeyFieldLoader;
   private final FileHashLoader fileHashLoader;
   private final SourcePathResolver pathResolver;
   private final SourcePathRuleFinder ruleFinder;
-  private final LoadingCache<RuleKeyAppendable, Result> cache;
   private final long inputSizeLimit;
 
+  private final SingleBuildRuleKeyCache<Result> ruleKeyCache = new SingleBuildRuleKeyCache<>();
+
   public InputBasedRuleKeyFactory(
-      int seed,
+      RuleKeyFieldLoader ruleKeyFieldLoader,
       FileHashLoader hashLoader,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       long inputSizeLimit) {
-    super(seed);
+    this.ruleKeyFieldLoader = ruleKeyFieldLoader;
     this.fileHashLoader = hashLoader;
     this.pathResolver = pathResolver;
     this.ruleFinder = ruleFinder;
     this.inputSizeLimit = inputSizeLimit;
-
-    // Build the cache around the sub-rule-keys and their dep lists.
-    cache = CacheBuilder.newBuilder().weakKeys().build(
-        new CacheLoader<RuleKeyAppendable, Result>() {
-          @Override
-          public Result load(
-              @Nonnull RuleKeyAppendable appendable) {
-            Builder subKeyBuilder = new Builder();
-            appendable.appendToRuleKey(subKeyBuilder);
-            return subKeyBuilder.buildResult();
-          }
-        });
   }
 
+  @VisibleForTesting
   public InputBasedRuleKeyFactory(
       int seed,
       FileHashLoader hashLoader,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder) {
-    this(seed, hashLoader, pathResolver, ruleFinder, Long.MAX_VALUE);
+    this(new RuleKeyFieldLoader(seed), hashLoader, pathResolver, ruleFinder, Long.MAX_VALUE);
+  }
+
+  private Result calculateBuildRuleKey(BuildRule buildRule) {
+    Builder builder = newVerifyingBuilder(buildRule);
+    ruleKeyFieldLoader.setFields(buildRule, builder);
+    return builder.build();
   }
 
   @Override
-  protected Builder newBuilder(final BuildRule rule) {
+  public RuleKey build(BuildRule buildRule) {
+    try {
+      return ruleKeyCache.get(buildRule, this::calculateBuildRuleKey).getRuleKey();
+    } catch (RuntimeException e) {
+      propagateIfSizeLimitException(e);
+      throw e;
+    }
+  }
+
+  private void propagateIfSizeLimitException(Throwable throwable) {
+    // At the moment, it is difficult to make SizeLimitException be a checked exception. Due to how
+    // exceptions are currently handled (e.g. LoadingCache wraps them with ExecutionException),
+    // we need to iterate through the cause chain to check if a SizeLimitException is wrapped.
+    Throwables.getCausalChain(throwable).stream()
+        .filter(t -> t instanceof SizeLimiter.SizeLimitException)
+        .findFirst()
+        .ifPresent(Throwables::throwIfUnchecked);
+  }
+
+  private Builder newVerifyingBuilder(final BuildRule rule) {
     final Iterable<DependencyAggregation> aggregatedRules =
         Iterables.filter(rule.getDeps(), DependencyAggregation.class);
     return new Builder() {
@@ -104,8 +114,8 @@ public final class InputBasedRuleKeyFactory
       // Construct the rule key, verifying that all the deps we saw when constructing it
       // are explicit dependencies of the rule.
       @Override
-      public RuleKey build() {
-        Result result = buildResult();
+      public Result build() {
+        Result result = super.build();
         for (BuildRule usedDep : result.getDeps()) {
           Preconditions.checkState(
               rule.getDeps().contains(usedDep) || hasEffectiveDirectDep(usedDep),
@@ -114,13 +124,12 @@ public final class InputBasedRuleKeyFactory
               usedDep.getBuildTarget(),
               rule.getDeps());
         }
-        return result.getRuleKey();
+        return result;
       }
-
     };
   }
 
-  /* package */ class Builder extends RuleKeyBuilder<RuleKey> {
+  /* package */ class Builder extends RuleKeyBuilder<Result> {
 
     private final ImmutableList.Builder<Iterable<BuildRule>> deps = ImmutableList.builder();
     private final SizeLimiter sizeLimiter = new SizeLimiter(inputSizeLimit);
@@ -129,9 +138,15 @@ public final class InputBasedRuleKeyFactory
       super(ruleFinder, pathResolver, fileHashLoader);
     }
 
+    private Result calculateRuleKeyAppendableKey(RuleKeyAppendable appendable) {
+      Builder subKeyBuilder = new Builder();
+      appendable.appendToRuleKey(subKeyBuilder);
+      return subKeyBuilder.build();
+    }
+
     @Override
     protected Builder setAppendableRuleKey(RuleKeyAppendable appendable) {
-      Result result = cache.getUnchecked(appendable);
+      Result result = ruleKeyCache.get(appendable, this::calculateRuleKeyAppendableKey);
       deps.add(result.getDeps());
       setAppendableRuleKey(result.getRuleKey());
       return this;
@@ -173,18 +188,14 @@ public final class InputBasedRuleKeyFactory
               rule));
     }
 
-    // Build the rule key and the list of deps found from this builder.
-    final Result buildResult() {
+    @Override
+    public Result build() {
       return new Result(buildRuleKey(), Iterables.concat(deps.build()));
     }
 
-    @Override
-    public RuleKey build() {
-      return buildRuleKey();
-    }
   }
 
-  private static class Result {
+  protected static class Result {
 
     private final RuleKey ruleKey;
     private final Iterable<BuildRule> deps;

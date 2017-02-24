@@ -33,7 +33,6 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -181,6 +180,7 @@ abstract class DDescriptionUtils {
   public static SymlinkTree createSourceSymlinkTree(
       BuildTarget target,
       BuildRuleParams baseParams,
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
       SourceList sources) {
     Preconditions.checkState(target.getFlavors().contains(SOURCE_LINK_TREE));
@@ -198,7 +198,8 @@ abstract class DDescriptionUtils {
                 baseParams.getBuildTarget(),
                 pathResolver,
                 "srcs"),
-            MorePaths.toPathFn(baseParams.getProjectFilesystem().getRootPath().getFileSystem())));
+            MorePaths.toPathFn(baseParams.getProjectFilesystem().getRootPath().getFileSystem())),
+        ruleFinder);
   }
 
   private static ImmutableMap<BuildTarget, DLibrary> getTransitiveDLibraryRules(
@@ -222,7 +223,6 @@ abstract class DDescriptionUtils {
    * if neccesary.
    * @param baseParams build parameters for the rule
    * @param buildRuleResolver BuildRuleResolver the rule should be in
-   * @param sourcePathResolver used to resolve source paths
    * @param src the source file to be compiled
    * @param compilerFlags flags to pass to the compiler
    * @param compileTarget the target the rule should be for
@@ -233,7 +233,6 @@ abstract class DDescriptionUtils {
       BuildTarget compileTarget,
       BuildRuleParams baseParams,
       BuildRuleResolver buildRuleResolver,
-      SourcePathResolver sourcePathResolver,
       SourcePathRuleFinder ruleFinder,
       DBuckConfig dBuckConfig,
       ImmutableList<String> compilerFlags,
@@ -268,7 +267,6 @@ abstract class DDescriptionUtils {
                   compileTarget,
                   Suppliers.ofInstance(deps),
                   Suppliers.ofInstance(ImmutableSortedSet.of())),
-              sourcePathResolver,
               compiler,
               ImmutableList.<String>builder()
                   .addAll(dBuckConfig.getBaseCompilerFlags())
@@ -311,18 +309,17 @@ abstract class DDescriptionUtils {
               baseParams.getBuildTarget(),
               source.getKey(),
               cxxPlatform);
-      requireBuildRule(
+      BuildRule rule = requireBuildRule(
           compileTarget,
           baseParams,
           buildRuleResolver,
-          sourcePathResolver,
           ruleFinder,
           dBuckConfig,
           compilerFlags,
           source.getKey(),
           source.getValue(),
           includes);
-      sourcePaths.add(new BuildTargetSourcePath(compileTarget));
+      sourcePaths.add(rule.getSourcePathToOutput());
     }
     return sourcePaths.build();
   }

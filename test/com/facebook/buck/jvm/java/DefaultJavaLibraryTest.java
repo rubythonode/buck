@@ -71,6 +71,7 @@ import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
@@ -100,6 +101,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -705,9 +707,11 @@ public class DefaultJavaLibraryTest {
             .setOut("Test.java")
             .setCmd("something")
             .build(ruleResolver, filesystem);
-    filesystem.writeContentsToPath("class Test {}", genSrc.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "class Test {}",
+        pathResolver.getRelativePath(genSrc.getSourcePathToOutput()));
     JavaLibrary library =
-        (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
             .addSrc(new BuildTargetSourcePath(genSrc.getBuildTarget()))
             .build(ruleResolver, filesystem);
     FileHashCache originalHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
@@ -730,7 +734,7 @@ public class DefaultJavaLibraryTest {
             .setCmd("something else")
             .build(ruleResolver, filesystem);
     library =
-        (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
             .addSrc(new BuildTargetSourcePath(genSrc.getBuildTarget()))
             .build(ruleResolver, filesystem);
     FileHashCache unaffectedHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
@@ -751,9 +755,11 @@ public class DefaultJavaLibraryTest {
             .setOut("Test.java")
             .setCmd("something else")
             .build(ruleResolver, filesystem);
-    filesystem.writeContentsToPath("class Test2 {}", genSrc.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "class Test2 {}",
+        pathResolver.getRelativePath(genSrc.getSourcePathToOutput()));
     library =
-        (JavaLibrary) JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
             .addSrc(new BuildTargetSourcePath(genSrc.getBuildTarget()))
             .build(ruleResolver, filesystem);
     FileHashCache affectedHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
@@ -793,10 +799,13 @@ public class DefaultJavaLibraryTest {
     JavaLibrary dep = (JavaLibrary) ruleResolver.requireRule(depNode.getBuildTarget());
     JavaLibrary library = (JavaLibrary) ruleResolver.requireRule(libraryNode.getBuildTarget());
 
-    filesystem.writeContentsToPath("JAR contents", dep.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "JAR contents",
+        pathResolver.getRelativePath(dep.getSourcePathToOutput()));
     writeAbiJar(
         filesystem,
-        ruleResolver.requireRule(dep.getAbiJar().get()).getPathToOutput(),
+        pathResolver.getRelativePath(
+            ruleResolver.requireRule(dep.getAbiJar().get()).getSourcePathToOutput()),
         "Source.class",
         "ABI JAR contents");
     FileHashCache originalHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
@@ -825,7 +834,9 @@ public class DefaultJavaLibraryTest {
     dep = (JavaLibrary) ruleResolver.requireRule(depNode.getBuildTarget());
     library = (JavaLibrary) ruleResolver.requireRule(libraryNode.getBuildTarget());
 
-    filesystem.writeContentsToPath("different JAR contents", dep.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "different JAR contents",
+        pathResolver.getRelativePath(dep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
     factory =
         new InputBasedRuleKeyFactory(
@@ -848,7 +859,8 @@ public class DefaultJavaLibraryTest {
 
     writeAbiJar(
         filesystem,
-        ruleResolver.requireRule(dep.getAbiJar().get()).getPathToOutput(),
+        pathResolver.getRelativePath(
+            ruleResolver.requireRule(dep.getAbiJar().get()).getSourcePathToOutput()),
         "Source.class",
         "changed ABI JAR contents");
     FileHashCache affectedHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
@@ -895,10 +907,13 @@ public class DefaultJavaLibraryTest {
     JavaLibrary library =
         (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:lib"));
 
-    filesystem.writeContentsToPath("JAR contents", exportedDep.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "JAR contents",
+        pathResolver.getRelativePath(exportedDep.getSourcePathToOutput()));
     writeAbiJar(
         filesystem,
-        ruleResolver.requireRule(exportedDep.getAbiJar().get()).getPathToOutput(),
+        pathResolver.getRelativePath(
+            ruleResolver.requireRule(exportedDep.getAbiJar().get()).getSourcePathToOutput()),
         "Source1.class",
         "ABI JAR contents");
 
@@ -929,7 +944,9 @@ public class DefaultJavaLibraryTest {
     exportedDep = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:lib"));
 
-    filesystem.writeContentsToPath("different JAR contents", exportedDep.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "different JAR contents",
+        pathResolver.getRelativePath(exportedDep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
     factory =
         new InputBasedRuleKeyFactory(
@@ -952,7 +969,8 @@ public class DefaultJavaLibraryTest {
 
     writeAbiJar(
         filesystem,
-        ruleResolver.requireRule(exportedDep.getAbiJar().get()).getPathToOutput(),
+        pathResolver.getRelativePath(
+            ruleResolver.requireRule(exportedDep.getAbiJar().get()).getSourcePathToOutput()),
         "Source1.class",
         "changed ABI JAR contents");
     FileHashCache affectedHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
@@ -1005,10 +1023,13 @@ public class DefaultJavaLibraryTest {
     JavaLibrary library =
         (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:lib"));
 
-    filesystem.writeContentsToPath("JAR contents", exportedDep.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "JAR contents",
+        pathResolver.getRelativePath(exportedDep.getSourcePathToOutput()));
     writeAbiJar(
         filesystem,
-        ruleResolver.requireRule(exportedDep.getAbiJar().get()).getPathToOutput(),
+        pathResolver.getRelativePath(
+            ruleResolver.requireRule(exportedDep.getAbiJar().get()).getSourcePathToOutput()),
         "Source1.class",
         "ABI JAR contents");
     FileHashCache originalHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
@@ -1038,7 +1059,9 @@ public class DefaultJavaLibraryTest {
     exportedDep = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:lib"));
 
-    filesystem.writeContentsToPath("different JAR contents", exportedDep.getPathToOutput());
+    filesystem.writeContentsToPath(
+        "different JAR contents",
+        pathResolver.getRelativePath(exportedDep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
     factory =
         new InputBasedRuleKeyFactory(
@@ -1061,7 +1084,8 @@ public class DefaultJavaLibraryTest {
 
     writeAbiJar(
         filesystem,
-        ruleResolver.requireRule(exportedDep.getAbiJar().get()).getPathToOutput(),
+        pathResolver.getRelativePath(
+            ruleResolver.requireRule(exportedDep.getAbiJar().get()).getSourcePathToOutput()),
         "Source1.class",
         "changed ABI JAR contents");
     FileHashCache affectedHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
@@ -1108,7 +1132,6 @@ public class DefaultJavaLibraryTest {
         postprocessClassesCommands,
         exportedDeps,
         /* providedDeps */ ImmutableSortedSet.of(),
-        /* abiJar */ BuildTargetFactory.newInstance("//:abi"),
         ImmutableSortedSet.of(),
         javacOptions.trackClassUsage(),
         /* additionalClasspathEntries */ ImmutableSet.of(),
@@ -1140,7 +1163,7 @@ public class DefaultJavaLibraryTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder1 = new SourcePathRuleFinder(resolver1);
     SourcePathResolver pathResolver1 = new SourcePathResolver(ruleFinder1);
-    DefaultJavaLibrary rule1 = (DefaultJavaLibrary) JavaLibraryBuilder
+    DefaultJavaLibrary rule1 = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//lib:lib"))
         .addSrc(Paths.get("agifhbkjdec.java"))
         .addSrc(Paths.get("bdeafhkgcji.java"))
@@ -1156,7 +1179,7 @@ public class DefaultJavaLibraryTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder2 = new SourcePathRuleFinder(resolver2);
     SourcePathResolver pathResolver2 = new SourcePathResolver(ruleFinder2);
-    DefaultJavaLibrary rule2 = (DefaultJavaLibrary) JavaLibraryBuilder
+    DefaultJavaLibrary rule2 = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//lib:lib"))
         .addSrc(Paths.get("cfiabkjehgd.java"))
         .addSrc(Paths.get("bdehgaifjkc.java"))
@@ -1225,6 +1248,8 @@ public class DefaultJavaLibraryTest {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(javacNode, ruleNode);
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
 
     BuildRule javac = ruleResolver.requireRule(javacTarget);
     BuildRule rule = ruleResolver.requireRule(libraryOneTarget);
@@ -1239,8 +1264,11 @@ public class DefaultJavaLibraryTest {
     assertTrue(javacStep instanceof Jsr199Javac);
     JarBackedJavac jsrJavac = ((JarBackedJavac) javacStep);
     assertEquals(
-        jsrJavac.getCompilerClassPath(),
-        ImmutableSet.of(new BuildTargetSourcePath(javac.getBuildTarget())));
+        RichStream.from(jsrJavac.getCompilerClassPath())
+            .map(pathResolver::getRelativePath)
+            .collect(MoreCollectors.toImmutableSet()),
+        ImmutableSet.of(pathResolver.getRelativePath(javac.getSourcePathToOutput()))
+    );
   }
 
   // Utilities
@@ -1321,7 +1349,7 @@ public class DefaultJavaLibraryTest {
       public BuildRule createRule(BuildTarget target) throws NoSuchBuildTargetException {
         return JavaLibraryBuilder.createBuilder(target)
             .addSrc(Paths.get("MyClass.java"))
-            .setProguardConfig(Paths.get("MyProguardConfig"))
+            .setProguardConfig(new FakeSourcePath("MyProguardConfig"))
             .build(ruleResolver);
       }
     };
@@ -1331,7 +1359,8 @@ public class DefaultJavaLibraryTest {
     private final AnnotationProcessingParams.Builder annotationProcessingParamsBuilder;
 
     public AnnotationProcessingScenario() throws IOException {
-      annotationProcessingParamsBuilder = new AnnotationProcessingParams.Builder();
+      annotationProcessingParamsBuilder = new AnnotationProcessingParams.Builder()
+          .setSafeAnnotationProcessors(Collections.emptySet());
     }
 
     public AnnotationProcessingParams.Builder getAnnotationProcessingParamsBuilder() {
@@ -1398,7 +1427,6 @@ public class DefaultJavaLibraryTest {
           /* postprocessClassesCommands */ ImmutableList.of(),
           /* exportedDeps */ ImmutableSortedSet.of(),
           /* providedDeps */ ImmutableSortedSet.of(),
-          /* abiJar */ BuildTargetFactory.newInstance("//:abi"),
           ImmutableSortedSet.of(),
           options.trackClassUsage(),
           /* additionalClasspathEntries */ ImmutableSet.of(),

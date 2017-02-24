@@ -227,7 +227,7 @@ public class SourcePathResolverTest {
     // Verify that wrapping a genrule in a BuildTargetSourcePath resolves to the output name of
     // that genrule.
     String out = "test/blah.txt";
-    Genrule genrule = (Genrule) GenruleBuilder
+    Genrule genrule = GenruleBuilder
         .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule"))
         .setOut(out)
         .build(resolver);
@@ -259,7 +259,7 @@ public class SourcePathResolverTest {
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     String out = "test/blah.jar";
-    Genrule genrule = (Genrule) GenruleBuilder
+    Genrule genrule = GenruleBuilder
         .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule"))
         .setOut(out)
         .build(resolver);
@@ -392,6 +392,35 @@ public class SourcePathResolverTest {
     ArchiveMemberPath absolutePath = pathResolver.getAbsoluteArchiveMemberPath(path);
     assertEquals(archiveAbsolutePath, absolutePath.getArchivePath());
     assertEquals(memberPath, absolutePath.getMemberPath());
+  }
+
+  @Test
+  public void getPathSourcePath() {
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    PathSourcePath pathSourcePath = new PathSourcePath(filesystem, filesystem.getPath("test"));
+
+    assertThat(
+        pathResolver.getPathSourcePath(pathSourcePath),
+        Matchers.equalTo(Optional.of(pathSourcePath)));
+
+    assertThat(
+        pathResolver.getPathSourcePath(
+            new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:rule"))),
+        Matchers.equalTo(Optional.empty()));
+
+    assertThat(
+        pathResolver.getPathSourcePath(
+            new ArchiveMemberSourcePath(pathSourcePath, filesystem.getPath("something"))),
+        Matchers.equalTo(Optional.of(pathSourcePath)));
+    assertThat(
+        pathResolver.getPathSourcePath(
+            new ArchiveMemberSourcePath(
+                new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:rule")),
+                filesystem.getPath("something"))),
+        Matchers.equalTo(Optional.empty()));
   }
 
   private static class PathReferenceRule extends AbstractBuildRuleWithResolver {

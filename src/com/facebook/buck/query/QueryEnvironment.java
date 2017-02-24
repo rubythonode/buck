@@ -33,12 +33,14 @@ package com.facebook.buck.query;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import javax.annotation.Nullable;
 
@@ -172,7 +174,7 @@ public interface QueryEnvironment {
      * @param env the query environment this function is evaluated in.
      * @param args the input arguments. These are type-checked against the specification returned
      *     by {@link #getArgumentTypes} and {@link #getMandatoryArguments}*/
-    Set<QueryTarget> eval(
+    ImmutableSet<QueryTarget> eval(
         QueryEnvironment env,
         ImmutableList<Argument> args,
         ListeningExecutorService executor) throws QueryException, InterruptedException;
@@ -182,12 +184,25 @@ public interface QueryEnvironment {
    * Returns the set of target nodes in the graph for the specified target
    * pattern, in 'buck build' syntax.
    */
-  Set<QueryTarget> getTargetsMatchingPattern(String pattern, ListeningExecutorService executor)
-      throws QueryException, InterruptedException;
+  ImmutableSet<QueryTarget> getTargetsMatchingPattern(
+      String pattern,
+      ListeningExecutorService executor) throws QueryException, InterruptedException;
 
   /** Returns the direct forward dependencies of the specified targets. */
-  Set<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets)
+  ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets)
       throws QueryException, InterruptedException;
+
+  /**
+   * Applies {@code action} to each forward dependencies of the specified targets.
+   *
+   * Might apply more than once to the same target, so {@code action} should be idempotent.
+   */
+  default void forEachFwdDep(
+      Iterable<QueryTarget> targets,
+      Consumer<? super QueryTarget> action)
+      throws QueryException, InterruptedException {
+    getFwdDeps(targets).forEach(action);
+  }
 
   /** Returns the direct reverse dependencies of the specified targets. */
   Set<QueryTarget> getReverseDeps(Iterable<QueryTarget> targets)
@@ -257,6 +272,7 @@ public interface QueryEnvironment {
           new AttrFilterFunction(),
           new BuildFileFunction(),
           new DepsFunction(),
+          new DepsFunction.FirstOrderDepsFunction(),
           new InputsFunction(),
           new FilterFunction(),
           new KindFunction(),
@@ -265,5 +281,21 @@ public interface QueryEnvironment {
           new RdepsFunction(),
           new TestsOfFunction()
           );
+
+  /**
+   * @return the {@link QueryTarget}s expanded from the given variable {@code name}.
+   */
+  default ImmutableSet<QueryTarget> resolveTargetVariable(String name) {
+    throw new IllegalArgumentException(String.format("unexpected target variable \"%s\"", name));
+  }
+
+  /**
+   * @return a new {@link QueryEnvironment} with the additional target variables set.
+   */
+  default QueryEnvironment withTargetVariables(
+      ImmutableMap<String, ImmutableSet<QueryTarget>> variables) {
+    return new TargetVariablesQueryEnvironment(variables, this);
+  }
+
 }
 

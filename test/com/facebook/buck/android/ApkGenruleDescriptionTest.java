@@ -23,10 +23,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.FakeTargetNodeBuilder;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -38,7 +40,6 @@ import org.junit.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
 
 public class ApkGenruleDescriptionTest {
 
@@ -53,7 +54,8 @@ public class ApkGenruleDescriptionTest {
 
     BuildTarget installableApkTarget = BuildTargetFactory.newInstance("//:installable");
     TargetNode<?, ?> installableApkNode =
-        FakeTargetNodeBuilder.build(new FakeInstallable(installableApkTarget, emptyPathResolver));
+        FakeTargetNodeBuilder
+            .build(new FakeInstallable(installableApkTarget, emptyPathResolver));
     TargetNode<?, ?> transitiveDepNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:dep"))
             .addSrc(Paths.get("Dep.java"))
@@ -82,7 +84,10 @@ public class ApkGenruleDescriptionTest {
     assertThat(genrule.getDeps(), Matchers.hasItems(dep, transitiveDep));
   }
 
-  private static class FakeInstallable extends FakeBuildRule implements InstallableApk {
+  private static class FakeInstallable extends FakeBuildRule implements HasInstallableApk {
+
+    Path pathToOutput = Paths.get("buck-out", "app.apk");
+    SourcePath apkPath = new BuildTargetSourcePath(getBuildTarget(), pathToOutput);
 
     public FakeInstallable(
         BuildTarget buildTarget,
@@ -91,20 +96,21 @@ public class ApkGenruleDescriptionTest {
     }
 
     @Override
-    public Path getManifestPath() {
-      return Paths.get("nothing");
+    public ApkInfo getApkInfo() {
+      return ApkInfo.builder()
+          .setApkPath(apkPath)
+          .setManifestPath(new FakeSourcePath("nothing"))
+          .build();
     }
 
     @Override
-    public Path getApkPath() {
-      return Paths.get("buck-out/app.apk");
+    public Path getPathToOutput() {
+      return pathToOutput;
     }
 
     @Override
-    public Optional<ExopackageInfo> getExopackageInfo() {
-      return Optional.empty();
+    public SourcePath getSourcePathToOutput() {
+      return apkPath;
     }
-
   }
-
 }

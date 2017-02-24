@@ -22,7 +22,6 @@ import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -57,6 +56,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 
+
 @BuildsAnnotationProcessor
 public class PrebuiltJar extends AbstractBuildRuleWithResolver
     implements AndroidPackageable, ExportDependencies, HasClasspathEntries,
@@ -66,7 +66,6 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
 
   @AddToRuleKey
   private final SourcePath binaryJar;
-  private final BuildTarget abiJar;
   private final Path copiedBinaryJar;
   @AddToRuleKey
   private final Optional<SourcePath> sourceJar;
@@ -89,7 +88,6 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
       BuildRuleParams params,
       SourcePathResolver resolver,
       SourcePath binaryJar,
-      BuildTarget abiJar,
       Optional<SourcePath> sourceJar,
       Optional<SourcePath> gwtJar,
       Optional<String> javadocUrl,
@@ -97,7 +95,6 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
       final boolean provided) {
     super(params, resolver);
     this.binaryJar = binaryJar;
-    this.abiJar = abiJar;
     this.sourceJar = sourceJar;
     this.gwtJar = gwtJar;
     this.javadocUrl = javadocUrl;
@@ -151,11 +148,6 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public Optional<BuildTarget> getAbiJar() {
-    return Optional.of(abiJar);
-  }
-
-  @Override
   public ImmutableSortedMap<String, HashCode> getClassNamesToHashes() {
     return buildOutputInitializer.getBuildOutput().getClassNamesToHashes();
   }
@@ -191,7 +183,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
   @Override
   public ImmutableSet<SourcePath> getImmediateClasspaths() {
     if (!provided) {
-      return ImmutableSet.of(getBinaryJar());
+      return ImmutableSet.of(getSourcePathToOutput());
     } else {
       return ImmutableSet.of();
     }
@@ -199,7 +191,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
 
   @Override
   public ImmutableSet<SourcePath> getOutputClasspaths() {
-    return ImmutableSet.of(getBinaryJar());
+    return ImmutableSet.of(getSourcePathToOutput());
   }
 
   @Override
@@ -270,7 +262,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
 
     // Create a step to compute the ABI key.
     steps.add(new MkdirStep(getProjectFilesystem(), internalAbiJar.getParent()));
-    steps.add(new RmStep(getProjectFilesystem(), internalAbiJar, RmStep.Mode.FORCED));
+    steps.add(new RmStep(getProjectFilesystem(), internalAbiJar));
     steps.add(
         new CalculateAbiStep(
             buildableContext,
@@ -278,7 +270,11 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
             resolvedBinaryJar,
             internalAbiJar));
 
-    JavaLibraryRules.addAccumulateClassNamesStep(this, buildableContext, steps);
+    JavaLibraryRules.addAccumulateClassNamesStep(
+        this,
+        buildableContext,
+        context.getSourcePathResolver(),
+        steps);
 
     return steps.build();
   }
@@ -291,8 +287,8 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
     if (!provided) {
-      collector.addClasspathEntry(this, getBinaryJar());
-      collector.addPathToThirdPartyJar(getBuildTarget(), getBinaryJar());
+      collector.addClasspathEntry(this, getSourcePathToOutput());
+      collector.addPathToThirdPartyJar(getBuildTarget(), getSourcePathToOutput());
     }
   }
 
@@ -301,8 +297,9 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
     return copiedBinaryJar;
   }
 
-  public SourcePath getBinaryJar() {
-    return new BuildTargetSourcePath(getBuildTarget());
+  @Override
+  public SourcePath getSourcePathToOutput() {
+    return new BuildTargetSourcePath(getBuildTarget(), getPathToOutput());
   }
 
   @Override

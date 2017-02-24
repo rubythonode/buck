@@ -25,11 +25,9 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
@@ -79,14 +77,15 @@ public class DTestDescription implements
 
     BuildTarget target = params.getBuildTarget();
 
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     SymlinkTree sourceTree =
         buildRuleResolver.addToIndex(
             DDescriptionUtils.createSourceSymlinkTree(
                 DDescriptionUtils.getSymlinkTreeTarget(params.getBuildTarget()),
                 params,
+                ruleFinder,
                 pathResolver,
                 args.srcs));
 
@@ -110,14 +109,13 @@ public class DTestDescription implements
             args.srcs,
             args.linkerFlags,
             DIncludes.builder()
-                .setLinkTree(new BuildTargetSourcePath(sourceTree.getBuildTarget()))
+                .setLinkTree(sourceTree.getSourcePathToOutput())
                 .addAllSources(args.srcs.getPaths())
                 .build());
     buildRuleResolver.addToIndex(binaryRule);
 
     return new DTest(
         params.appendExtraDeps(ImmutableList.of(binaryRule)),
-        pathResolver,
         binaryRule,
         args.contacts,
         args.labels,
@@ -141,7 +139,6 @@ public class DTestDescription implements
   public static class Arg extends AbstractDescriptionArg {
     public SourceList srcs;
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
     public Optional<Long> testRuleTimeoutMs;
     public ImmutableSortedSet<BuildTarget> deps;
     public ImmutableList<String> linkerFlags = ImmutableList.of();

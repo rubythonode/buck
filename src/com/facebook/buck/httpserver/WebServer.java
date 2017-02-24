@@ -18,6 +18,7 @@ package com.facebook.buck.httpserver;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.util.trace.BuildTraces;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -33,7 +34,6 @@ import org.eclipse.jetty.server.handler.ResourceHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -121,7 +121,7 @@ public class WebServer {
 
     // Package up all of the handlers into a ContextHandlerCollection to serve as the handler for
     // the server.
-    List<? extends Handler> handlers = createHandlers();
+    ImmutableList<? extends Handler> handlers = createHandlers();
     ContextHandlerCollection contexts = new ContextHandlerCollection();
     contexts.setHandlers(handlers.toArray(new Handler[0]));
     server.setHandler(contexts);
@@ -134,7 +134,7 @@ public class WebServer {
   }
 
   @VisibleForTesting
-  List<ContextHandler> createHandlers() {
+  ImmutableList<ContextHandler> createHandlers() {
     Map<String, Handler> contextPathToHandler = Maps.newHashMap();
 
     contextPathToHandler.put(INDEX_CONTEXT_PATH, new TemplateHandler(new IndexHandlerDelegate()));
@@ -144,12 +144,12 @@ public class WebServer {
     contextPathToHandler.put(STATIC_CONTEXT_PATH, resourceHandler);
 
     // Handlers for traces.
-    TracesHelper tracesHelper = new TracesHelper(projectFilesystem);
+    BuildTraces buildTraces = new BuildTraces(projectFilesystem);
     contextPathToHandler.put(TRACE_CONTEXT_PATH, new TemplateHandler(
-        new TraceHandlerDelegate(tracesHelper)));
+        new TraceHandlerDelegate(buildTraces)));
     contextPathToHandler.put(TRACES_CONTEXT_PATH, new TemplateHandler(
-        new TracesHandlerDelegate(tracesHelper)));
-    contextPathToHandler.put(TRACE_DATA_CONTEXT_PATH, new TraceDataHandler(tracesHelper));
+        new TracesHandlerDelegate(buildTraces)));
+    contextPathToHandler.put(TRACE_DATA_CONTEXT_PATH, new TraceDataHandler(buildTraces));
     contextPathToHandler.put(ARTIFACTS_CONTEXT_PATH, artifactCacheHandler);
 
     ImmutableList.Builder<ContextHandler> handlers = ImmutableList.builder();

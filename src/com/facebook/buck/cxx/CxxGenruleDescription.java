@@ -17,6 +17,7 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -43,11 +44,13 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.ExecutableMacroExpander;
+import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.StringExpander;
 import com.facebook.buck.shell.AbstractGenruleDescription;
+import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
@@ -98,10 +101,9 @@ public class CxxGenruleDescription
       throws NoSuchBuildTargetException {
     Optional<BuildRule> rule = ruleFinder.getRule(path);
     if (rule.isPresent() && rule.get() instanceof CxxGenrule) {
-      BuildRule platformRule =
-          ruleResolver.requireRule(
-              rule.get().getBuildTarget().withAppendedFlavors(platform.getFlavor()));
-      path = new BuildTargetSourcePath(platformRule.getBuildTarget());
+      Genrule platformRule = (Genrule) ruleResolver.requireRule(
+          rule.get().getBuildTarget().withAppendedFlavors(platform.getFlavor()));
+      path = platformRule.getSourcePathToOutput();
     }
     return path;
   }
@@ -197,10 +199,11 @@ public class CxxGenruleDescription
         "location-platform",
         new LocationMacroExpander() {
           @Override
-          protected BuildRule resolve(BuildRuleResolver resolver, BuildTarget input)
+          protected BuildRule resolve(BuildRuleResolver resolver, LocationMacro input)
               throws MacroException {
             try {
-              return resolver.requireRule(input.withAppendedFlavors(cxxPlatform.get().getFlavor()));
+              return resolver.requireRule(
+                  input.getTarget().withAppendedFlavors(cxxPlatform.get().getFlavor()));
             } catch (NoSuchBuildTargetException e) {
               throw new MacroException(e.getHumanReadableErrorMessage());
             }
@@ -281,7 +284,7 @@ public class CxxGenruleDescription
       BuildTarget target,
       CellPathResolver cellNames,
       TargetNodeTranslator translator) {
-    BuildTargetPatternParser<?> buildTargetPatternParser =
+    BuildTargetPatternParser<BuildTargetPattern> buildTargetPatternParser =
         BuildTargetPatternParser.forBaseName(target.getBaseName());
 
     ImmutableMap.Builder<String, MacroReplacer> macros = ImmutableMap.builder();
@@ -348,7 +351,11 @@ public class CxxGenruleDescription
       TargetNodeTranslator translator,
       Arg constructorArg) {
     Arg newConstructorArg = createUnpopulatedConstructorArg();
-    translator.translateConstructorArg(constructorArg, newConstructorArg);
+    translator.translateConstructorArg(
+        cellNames,
+        BuildTargetPatternParser.forBaseName(target.getBaseName()),
+        constructorArg,
+        newConstructorArg);
     newConstructorArg.cmd =
         newConstructorArg.cmd.map(c -> translateCmd(target, cellNames, translator, "cmd", c));
     newConstructorArg.bash =
@@ -367,6 +374,11 @@ public class CxxGenruleDescription
 
     public ParseTimeDepsExpander(Filter filter) {
       super(filter);
+    }
+
+    @Override
+    public Class<FilterAndTargets> getInputClass() {
+      return FilterAndTargets.class;
     }
 
     @Override
@@ -560,6 +572,11 @@ public class CxxGenruleDescription
       this.sourceType = sourceType;
     }
 
+    @Override
+    public Class<FilterAndTargets> getInputClass() {
+      return FilterAndTargets.class;
+    }
+
     /**
      * Make sure all resolved targets are instances of {@link CxxPreprocessorDep}.
      */
@@ -689,6 +706,11 @@ public class CxxGenruleDescription
       this.out = out;
     }
 
+    @Override
+    public Class<FilterAndTargets> getInputClass() {
+      return FilterAndTargets.class;
+    }
+
     /**
      * @return a {@link SymlinkTree} containing all the transitive shared libraries from the given
      *         roots linked in by their library name.
@@ -708,6 +730,7 @@ public class CxxGenruleDescription
           symlinkTree =
               resolver.addToIndex(
                   CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
+                      new SourcePathRuleFinder(resolver),
                       params,
                       cxxPlatform,
                       rules,
@@ -907,14 +930,14 @@ public class CxxGenruleDescription
 
     private final AsIsMacroReplacer asIsMacroReplacer;
     private final Filter filter;
-    private final BuildTargetPatternParser<?> buildTargetBuildTargetParser;
+    private final BuildTargetPatternParser<BuildTargetPattern> buildTargetBuildTargetParser;
     private final CellPathResolver cellNames;
     private final TargetNodeTranslator translator;
 
     private TargetTranslatorMacroReplacer(
         AsIsMacroReplacer asIsMacroReplacer,
         Filter filter,
-        BuildTargetPatternParser<?> buildTargetBuildTargetParser,
+        BuildTargetPatternParser<BuildTargetPattern> buildTargetBuildTargetParser,
         CellPathResolver cellNames, TargetNodeTranslator translator) {
       this.asIsMacroReplacer = asIsMacroReplacer;
       this.filter = filter;
@@ -941,7 +964,9 @@ public class CxxGenruleDescription
 
       for (String arg : args.subList(filter == Filter.PARAM ? 1 : 0, args.size())) {
         BuildTarget target = parse(arg);
-        strings.add(translator.translate(target).orElse(target).getFullyQualifiedName());
+        strings.add(
+            translator.translate(cellNames, buildTargetBuildTargetParser, target).orElse(target)
+                .getFullyQualifiedName());
       }
 
       return asIsMacroReplacer.replace(strings.build());

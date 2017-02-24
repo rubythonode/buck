@@ -35,7 +35,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -92,19 +91,17 @@ public class KotlinLibraryDescription implements
 
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
-    ImmutableSortedSet<Flavor> flavors = target.getFlavors();
-
-    if (flavors.contains(CalculateAbi.FLAVOR)) {
-      BuildTarget libraryTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
-      resolver.requireRule(libraryTarget);
+    if (CalculateAbi.isAbiTarget(target)) {
+      BuildTarget libraryTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
+      BuildRule libraryRule = resolver.requireRule(libraryTarget);
       return CalculateAbi.of(
           params.getBuildTarget(),
           ruleFinder,
           params,
-          new BuildTargetSourcePath(libraryTarget));
+          Preconditions.checkNotNull(libraryRule.getSourcePathToOutput()));
     }
 
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    ImmutableSortedSet<Flavor> flavors = target.getFlavors();
 
     BuildRuleParams paramsWithMavenFlavor = null;
     if (flavors.contains(JavaLibrary.MAVEN_JAR)) {
@@ -124,13 +121,11 @@ public class KotlinLibraryDescription implements
       if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
         return new JavaSourceJar(
             params,
-            pathResolver,
             args.srcs,
             args.mavenCoords);
       } else {
         return MavenUberJar.SourceJar.create(
             Preconditions.checkNotNull(paramsWithMavenFlavor),
-            pathResolver,
             args.srcs,
             args.mavenCoords,
             args.mavenPomTemplate);
@@ -144,7 +139,7 @@ public class KotlinLibraryDescription implements
         ruleFinder,
         args);
 
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps);
     BuildRuleParams javaLibraryParams =
@@ -172,7 +167,6 @@ public class KotlinLibraryDescription implements
             ImmutableList.of(),
             exportedDeps,
             resolver.getAllRules(args.providedDeps),
-            abiJarTarget,
             JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
             false,
             ImmutableSet.of(),
@@ -191,7 +185,6 @@ public class KotlinLibraryDescription implements
       return MavenUberJar.create(
           defaultKotlinLibrary,
           Preconditions.checkNotNull(paramsWithMavenFlavor),
-          pathResolver,
           args.mavenCoords,
           args.mavenPomTemplate);
     }

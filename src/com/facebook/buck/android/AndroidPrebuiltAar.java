@@ -31,7 +31,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -54,7 +53,6 @@ public class AndroidPrebuiltAar
       JavacOptions javacOptions,
       CompileToJarStepFactory compileStepFactory,
       Iterable<PrebuiltJar> exportedDeps,
-      BuildTarget abiJar,
       ImmutableSortedSet<SourcePath> abiInputs) {
     super(
         androidLibraryParams,
@@ -69,7 +67,6 @@ public class AndroidPrebuiltAar
             .addAll(exportedDeps)
             .build(),
         /* providedDeps */ ImmutableSortedSet.of(),
-        abiJar,
         abiInputs,
         /* additionalClasspathEntries */ ImmutableSet.of(),
         javacOptions,
@@ -124,16 +121,16 @@ public class AndroidPrebuiltAar
     return prebuiltJar;
   }
 
-  public Path getBinaryJar() {
-    return prebuiltJar.getPathToOutput();
+  public SourcePath getBinaryJar() {
+    return prebuiltJar.getSourcePathToOutput();
   }
 
   // This class is basically a wrapper around its android resource rule, since dependents will
   // use this interface to access the underlying R.java package, so make sure it's available when
   // a dependent is building against us.
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
-    return Stream.of(new BuildTargetSourcePath(unzipAar.getBuildTarget()));
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return Stream.of(unzipAar.getBuildTarget());
   }
 
 }

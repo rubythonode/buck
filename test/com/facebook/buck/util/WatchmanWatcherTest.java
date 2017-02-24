@@ -30,8 +30,10 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.io.FakeWatchmanClient;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.PathOrGlobMatcher;
@@ -73,6 +75,10 @@ public class WatchmanWatcherTest {
       WatchmanQuery.of("/fake/root", ImmutableMap.of());
   private static final List<Object> FAKE_UUID_QUERY = FAKE_QUERY.toList("n:buckduuid");
   private static final List<Object> FAKE_CLOCK_QUERY = FAKE_QUERY.toList("c:0:0");
+
+  private static final Path FAKE_SECONDARY_ROOT = Paths.get("/fake/secondary").toAbsolutePath();
+  private static final WatchmanQuery FAKE_SECONDARY_QUERY =
+      WatchmanQuery.of("/fake/SECONDARY", ImmutableMap.of());
 
   @After
   public void cleanUp() {
@@ -433,8 +439,7 @@ public class WatchmanWatcherTest {
     WatchmanQuery query = WatchmanWatcher.createQuery(
         ProjectWatch.of("path/to/repo", Optional.of("project")),
         ImmutableSet.of(),
-        ImmutableSet.of(Watchman.Capability.DIRNAME),
-        Optional.of(new WatchmanCursor(Watchman.NULL_CLOCK)));
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
 
     assertThat(
         query.toList(""),
@@ -448,27 +453,20 @@ public class WatchmanWatcherTest {
         ImmutableSet.of(
             new PathOrGlobMatcher(Paths.get("foo")),
             new PathOrGlobMatcher(Paths.get("bar/baz"))),
-        ImmutableSet.of(Watchman.Capability.DIRNAME),
-        Optional.of(new WatchmanCursor(Watchman.NULL_CLOCK)));
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
     assertEquals(
         WatchmanQuery.of(
             "/path/to/repo",
             ImmutableMap.of(
                 "expression", ImmutableList.of(
-                    "allof",
+                    "not",
                     ImmutableList.of(
-                        "not",
+                        "anyof",
+                        ImmutableList.of("type", "d"),
+                        ImmutableList.of("dirname", "foo"),
                         ImmutableList.of(
-                            "anyof",
-                            ImmutableList.of("type", "d"),
-                            ImmutableList.of("dirname", "foo"),
-                            ImmutableList.of(
-                                "dirname",
-                                MorePaths.pathWithPlatformSeparators("bar/baz")))),
-                        ImmutableList.of("not",
-                            ImmutableList.of("allof",
-                                ImmutableList.of("since", "c:0:0", "cclock"),
-                                ImmutableList.of("not", "exists")))),
+                            "dirname",
+                            MorePaths.pathWithPlatformSeparators("bar/baz")))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
         query);
@@ -481,31 +479,24 @@ public class WatchmanWatcherTest {
         ImmutableSet.of(
             new PathOrGlobMatcher(Paths.get("foo")),
             new PathOrGlobMatcher(Paths.get("bar/baz"))),
-        ImmutableSet.of(),
-        Optional.of(new WatchmanCursor(Watchman.NULL_CLOCK)));
+        ImmutableSet.of());
     assertEquals(
         WatchmanQuery.of(
             "/path/to/repo",
             ImmutableMap.of(
                 "expression", ImmutableList.of(
-                    "allof",
+                    "not",
                     ImmutableList.of(
-                        "not",
+                        "anyof",
+                        ImmutableList.of("type", "d"),
                         ImmutableList.of(
-                            "anyof",
-                            ImmutableList.of("type", "d"),
-                            ImmutableList.of(
-                                "match",
-                                "foo" + File.separator + "*",
-                                "wholename"),
-                            ImmutableList.of(
-                                "match",
-                                "bar" + File.separator + "baz" + File.separator + "*",
-                                "wholename"))),
-                        ImmutableList.of("not",
-                            ImmutableList.of("allof",
-                                ImmutableList.of("since", "c:0:0", "cclock"),
-                                ImmutableList.of("not", "exists")))),
+                            "match",
+                            "foo" + File.separator + "*",
+                            "wholename"),
+                        ImmutableList.of(
+                            "match",
+                            "bar" + File.separator + "baz" + File.separator + "*",
+                            "wholename"))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
         query);
@@ -519,55 +510,20 @@ public class WatchmanWatcherTest {
         ImmutableSet.of(
             new PathOrGlobMatcher(Paths.get("/path/to/repo/foo").toAbsolutePath()),
             new PathOrGlobMatcher(Paths.get("/path/to/repo/bar/baz").toAbsolutePath())),
-        ImmutableSet.of(Watchman.Capability.DIRNAME),
-        Optional.of(new WatchmanCursor(Watchman.NULL_CLOCK)));
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
     assertEquals(
         WatchmanQuery.of(
             watchRoot,
             ImmutableMap.of(
                 "expression", ImmutableList.of(
-                    "allof",
+                    "not",
                     ImmutableList.of(
-                        "not",
+                        "anyof",
+                        ImmutableList.of("type", "d"),
+                        ImmutableList.of("dirname", "foo"),
                         ImmutableList.of(
-                            "anyof",
-                            ImmutableList.of("type", "d"),
-                            ImmutableList.of("dirname", "foo"),
-                            ImmutableList.of(
-                                "dirname",
-                                MorePaths.pathWithPlatformSeparators("bar/baz")))),
-                    ImmutableList.of("not",
-                        ImmutableList.of("allof",
-                            ImmutableList.of("since", "c:0:0", "cclock"),
-                            ImmutableList.of("not", "exists")))),
-                    "empty_on_fresh_instance", true,
-                    "fields", ImmutableList.of("name", "exists", "new"))),
-        query);
-  }
-
-  @Test
-  public void watchmanQueryExcludesFileCreatedAndThenDeletedEventPairsSinceLastClock() {
-    String watchRoot = Paths.get("/path/to/repo").toAbsolutePath().toString();
-    WatchmanQuery query = WatchmanWatcher.createQuery(
-        ProjectWatch.of(watchRoot, Optional.empty()),
-        ImmutableSet.of(),
-        ImmutableSet.of(Watchman.Capability.DIRNAME),
-        Optional.of(new WatchmanCursor("c:1234:last_clock")));
-    assertEquals(
-        WatchmanQuery.of(
-            watchRoot,
-            ImmutableMap.of(
-                "expression", ImmutableList.of(
-                    "allof",
-                    ImmutableList.of(
-                        "not",
-                        ImmutableList.of(
-                            "anyof",
-                            ImmutableList.of("type", "d"))),
-                    ImmutableList.of("not",
-                        ImmutableList.of("allof",
-                            ImmutableList.of("since", "c:1234:last_clock", "cclock"),
-                            ImmutableList.of("not", "exists")))),
+                            "dirname",
+                            MorePaths.pathWithPlatformSeparators("bar/baz")))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
         query);
@@ -579,28 +535,21 @@ public class WatchmanWatcherTest {
         ProjectWatch.of("/path/to/repo", Optional.empty()),
         ImmutableSet.of(
             new PathOrGlobMatcher("*.pbxproj")),
-        ImmutableSet.of(Watchman.Capability.DIRNAME),
-        Optional.of(new WatchmanCursor(Watchman.NULL_CLOCK)));
+        ImmutableSet.of(Watchman.Capability.DIRNAME));
     assertEquals(
         WatchmanQuery.of(
             "/path/to/repo",
             ImmutableMap.of(
                 "expression", ImmutableList.of(
-                    "allof",
+                    "not",
                     ImmutableList.of(
-                        "not",
+                        "anyof",
+                        ImmutableList.of("type", "d"),
                         ImmutableList.of(
-                            "anyof",
-                            ImmutableList.of("type", "d"),
-                            ImmutableList.of(
-                                "match",
-                                "*.pbxproj",
-                                "wholename",
-                                ImmutableMap.<String, Object>of("includedotfiles", true)))),
-                    ImmutableList.of("not",
-                        ImmutableList.of("allof",
-                            ImmutableList.of("since", "c:0:0", "cclock"),
-                            ImmutableList.of("not", "exists")))),
+                            "match",
+                            "*.pbxproj",
+                            "wholename",
+                            ImmutableMap.<String, Object>of("includedotfiles", true)))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
         query);
@@ -694,11 +643,125 @@ public class WatchmanWatcherTest {
 
     watcher.postEvents(
         BuckEventBusFactory.newInstance(new FakeClock(0)),
-        WatchmanWatcher.FreshInstanceAction.NONE);
+        WatchmanWatcher.FreshInstanceAction.POST_OVERFLOW_EVENT);
 
     assertThat(
       watcher.getWatchmanQuery(FAKE_ROOT),
       hasItem(hasEntry("since", "c:0:1")));
+  }
+
+  @Test
+  public void watcherOverflowUpdatesClockId() throws IOException, InterruptedException {
+    ImmutableMap<String, Object> watchmanOutput = ImmutableMap.<String, Object>of(
+        "clock", "c:1:0",
+        "is_fresh_instance", true);
+    final Set<WatchEvent<?>> events = Sets.newHashSet();
+    EventBus eventBus = new EventBus("watchman test");
+    eventBus.register(
+        new Object() {
+          @Subscribe
+          public void listen(WatchEvent<?> event) {
+            events.add(event);
+          }
+        });
+    WatchmanWatcher watcher = createWatcher(
+        eventBus,
+        new FakeWatchmanClient(
+            0 /* queryElapsedTimeNanos */,
+            ImmutableMap.of(FAKE_CLOCK_QUERY, watchmanOutput)),
+        10000 /* timeout */,
+        "c:0:0" /* sinceParam */);
+    assertThat(
+      watcher.getWatchmanQuery(FAKE_ROOT),
+      hasItem(hasEntry("since", "c:0:0")));
+
+    watcher.postEvents(
+        BuckEventBusFactory.newInstance(new FakeClock(0)),
+        WatchmanWatcher.FreshInstanceAction.POST_OVERFLOW_EVENT);
+
+    assertThat(
+      watcher.getWatchmanQuery(FAKE_ROOT),
+      hasItem(hasEntry("since", "c:1:0")));
+
+    boolean overflowSeen = false;
+    for (WatchEvent<?> event : events) {
+      overflowSeen |= event.kind().equals(StandardWatchEventKinds.OVERFLOW);
+    }
+    assertTrue(overflowSeen);
+  }
+
+  @Test
+  public void whenWatchmanReportsZeroFilesChangedThenPostEvent()
+      throws IOException, InterruptedException {
+    ImmutableMap<String, Object> watchmanOutput = ImmutableMap.of(
+        "files", ImmutableList.of());
+
+    WatchmanWatcher watcher = createWatcher(
+        new EventBus("watchman test"),
+        watchmanOutput);
+    final Set<BuckEvent> events = Sets.newHashSet();
+    BuckEventBus bus = BuckEventBusFactory.newInstance(new FakeClock(0));
+    bus.register(
+        new Object() {
+          @Subscribe
+          public void listen(WatchmanStatusEvent event) {
+            events.add(event);
+          }
+        });
+    watcher.postEvents(
+        bus,
+        WatchmanWatcher.FreshInstanceAction.POST_OVERFLOW_EVENT);
+
+    boolean zeroFilesChangedSeen = false;
+    System.err.println(String.format("Events: %d", events.size()));
+    for (BuckEvent event : events) {
+      zeroFilesChangedSeen |= event.getEventName().equals("WatchmanZeroFileChanges");
+    }
+    assertTrue(zeroFilesChangedSeen);
+  }
+
+  @Test
+  public void whenWatchmanCellReportsFilesChangedThenPostEvent()
+      throws IOException, InterruptedException {
+    ImmutableMap<String, Object> watchmanRootOutput = ImmutableMap.of(
+        "files", ImmutableList.of());
+    ImmutableMap<String, Object> watchmanSecondaryOutput = ImmutableMap.of(
+        "files", ImmutableList.of(ImmutableMap.<String, Object>of("name", "foo/bar/baz")));
+
+    WatchmanWatcher watcher = new WatchmanWatcher(
+        new EventBus("watchman test"),
+        new FakeWatchmanClient(
+            0,
+            ImmutableMap.of(
+                FAKE_CLOCK_QUERY, watchmanRootOutput,
+                FAKE_SECONDARY_QUERY.toList("c:0:0"), watchmanSecondaryOutput)),
+        10000,
+        ImmutableMap.of(
+            FAKE_ROOT, FAKE_QUERY,
+            FAKE_SECONDARY_ROOT, FAKE_SECONDARY_QUERY),
+        ImmutableMap.of(
+            FAKE_ROOT, new WatchmanCursor("c:0:0"),
+            FAKE_SECONDARY_ROOT, new WatchmanCursor("c:0:0")));
+    final Set<BuckEvent> events = Sets.newHashSet();
+    BuckEventBus bus = BuckEventBusFactory.newInstance(new FakeClock(0));
+    bus.register(
+        new Object() {
+          @Subscribe
+          public void listen(WatchmanStatusEvent event) {
+            events.add(event);
+          }
+        });
+    watcher.postEvents(
+        bus,
+        WatchmanWatcher.FreshInstanceAction.POST_OVERFLOW_EVENT);
+
+    boolean zeroFilesChangedSeen = false;
+    System.err.println(String.format("Events: %d", events.size()));
+    for (BuckEvent event : events) {
+      System.err.println(String.format("Event: %s", event));
+      zeroFilesChangedSeen |= event.getEventName().equals("WatchmanZeroFileChanges");
+    }
+    assertFalse(zeroFilesChangedSeen);
   }
 
   private WatchmanWatcher createWatcher(

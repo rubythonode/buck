@@ -29,6 +29,7 @@ import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.ExopackageInfo;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.google.common.annotations.VisibleForTesting;
@@ -44,6 +45,7 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.io.Closer;
 
 import java.io.File;
 import java.io.IOException;
@@ -102,8 +104,9 @@ public class ExopackageInstaller {
 
   private final ProjectFilesystem projectFilesystem;
   private final BuckEventBus eventBus;
+  private final SourcePathResolver pathResolver;
   private final AdbHelper adbHelper;
-  private final InstallableApk apkRule;
+  private final HasInstallableApk apkRule;
   private final String packageName;
   private final Path dataRoot;
 
@@ -129,19 +132,23 @@ public class ExopackageInstaller {
   }
 
   public ExopackageInstaller(
+      SourcePathResolver pathResolver,
       ExecutionContext context,
       AdbHelper adbHelper,
-      InstallableApk apkRule) {
+      HasInstallableApk apkRule) {
+    this.pathResolver = pathResolver;
     this.adbHelper = adbHelper;
     this.projectFilesystem = apkRule.getProjectFilesystem();
     this.eventBus = context.getBuckEventBus();
     this.apkRule = apkRule;
-    this.packageName = AdbHelper.tryToExtractPackageNameFromManifest(apkRule);
+    this.packageName = AdbHelper.tryToExtractPackageNameFromManifest(
+        pathResolver,
+        apkRule.getApkInfo());
     this.dataRoot = Paths.get("/data/local/tmp/exopackage/").resolve(packageName);
 
     Preconditions.checkArgument(AdbHelper.PACKAGE_NAME_PATTERN.matcher(packageName).matches());
 
-    Optional<ExopackageInfo> exopackageInfo = apkRule.getExopackageInfo();
+    Optional<ExopackageInfo> exopackageInfo = apkRule.getApkInfo().getExopackageInfo();
     Preconditions.checkArgument(exopackageInfo.isPresent());
     this.exopackageInfo = exopackageInfo.get();
   }
@@ -177,7 +184,9 @@ public class ExopackageInstaller {
             started,
             success,
             Optional.empty(),
-            Optional.of(AdbHelper.tryToExtractPackageNameFromManifest(apkRule))));
+            Optional.of(AdbHelper.tryToExtractPackageNameFromManifest(
+                pathResolver,
+                apkRule.getApkInfo()))));
     return success;
   }
 
@@ -223,8 +232,7 @@ public class ExopackageInstaller {
       nativeAgentPath = agentInfo.get().nativeLibPath;
       determineBestAgent();
 
-      final File apk = apkRule.getProjectFilesystem().resolve(
-          apkRule.getApkPath()).toFile();
+      final File apk = pathResolver.getAbsolutePath(apkRule.getApkInfo().getApkPath()).toFile();
       // TODO(dreiss): Support SD installation.
       final boolean installViaSd = false;
 
@@ -456,8 +464,8 @@ public class ExopackageInstaller {
 
       LOG.debug("App path: %s", appPackageInfo.get().apkPath);
       String installedAppSignature = getInstalledAppSignature(appPackageInfo.get().apkPath);
-      String localAppSignature = AgentUtil.getJarSignature(apkRule.getProjectFilesystem().resolve(
-              apkRule.getApkPath()).toString());
+      String localAppSignature = AgentUtil.getJarSignature(
+          pathResolver.getAbsolutePath(apkRule.getApkInfo().getApkPath()).toString());
       LOG.debug("Local app signature: %s", localAppSignature);
       LOG.debug("Remote app signature: %s", installedAppSignature);
 
@@ -518,7 +526,9 @@ public class ExopackageInstaller {
         String dirPath = dataRoot.resolve(dirname).toString();
         mkDirP(dirPath);
 
-        String output = AdbHelper.executeCommandWithErrorChecking(device, "ls " + dirPath);
+        String output = AdbHelper.executeCommandWithErrorChecking(
+            device,
+            "ls " + dirPath + " | cat");
 
         ImmutableSet.Builder<String> foundHashes = ImmutableSet.builder();
         ImmutableSet.Builder<String> filesToDelete = ImmutableSet.builder();
@@ -594,30 +604,42 @@ public class ExopackageInstaller {
         Path pathRelativeToDataRoot,
         final Path relativeSource) throws Exception {
       final Path source = projectFilesystem.resolve(relativeSource);
+      Closer closer = Closer.create();
       CollectingOutputReceiver receiver = new CollectingOutputReceiver() {
 
-        private boolean sentPayload = false;
+        private boolean startedPayload = false;
+        private boolean wrotePayload = false;
+        @Nullable
+        private OutputStream outToDevice;
 
         @Override
         public void addOutput(byte[] data, int offset, int length) {
           super.addOutput(data, offset, length);
-          if (!sentPayload && getOutput().length() >= AgentUtil.TEXT_SECRET_KEY_SIZE) {
-            LOG.verbose("Got key: %s", getOutput().trim());
-
-            sentPayload = true;
-            try (Socket clientSocket = new Socket("localhost", port)) {
+          try {
+            if (!startedPayload && getOutput().length() >= AgentUtil.TEXT_SECRET_KEY_SIZE) {
+              LOG.verbose("Got key: %s", getOutput().split("[\\r\\n]", 1)[0]);
+              startedPayload = true;
+              Socket clientSocket = new Socket("localhost", port);
+              closer.register(clientSocket);
               LOG.verbose("Connected");
-              OutputStream outToDevice = clientSocket.getOutputStream();
+              outToDevice = clientSocket.getOutputStream();
+              closer.register(outToDevice);
+              // Need to wait for client to acknowledge that we've connected.
+            }
+            if (!wrotePayload && getOutput().contains("z1")) {
+              LOG.verbose("Got z1");
+              wrotePayload = true;
               outToDevice.write(
                   getOutput().substring(
                       0,
                       AgentUtil.TEXT_SECRET_KEY_SIZE).getBytes());
               LOG.verbose("Wrote key");
               com.google.common.io.Files.asByteSource(source.toFile()).copyTo(outToDevice);
+              outToDevice.flush();
               LOG.verbose("Wrote file");
-            } catch (IOException e) {
-              throw new RuntimeException(e);
             }
+          } catch (IOException e) {
+            throw new RuntimeException(e);
           }
         }
       };
@@ -640,6 +662,9 @@ public class ExopackageInstaller {
       } catch (Exception e) {
         shellException = e;
       }
+
+      // Close the client socket, if we opened it.
+      closer.close();
 
       try {
         AdbHelper.checkReceiverOutput(command, receiver);

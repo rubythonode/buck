@@ -24,7 +24,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -50,7 +49,7 @@ public class OutOfProcessJarBackedJavac extends OutOfProcessJsr199Javac {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableSet<String> safeAnnotationProcessors,
+      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Optional<Path> workingDirectory,
@@ -66,7 +65,6 @@ public class OutOfProcessJarBackedJavac extends OutOfProcessJsr199Javac {
         serializedContext,
         invokingRule.getFullyQualifiedName(),
         options,
-        safeAnnotationProcessors.asList(),
         ImmutableList.copyOf(javaSourceFilePaths.stream().map(Path::toString).iterator()),
         pathToSrcsList.toString(),
         workingDirectory.isPresent() ? workingDirectory.get().toString() : null,

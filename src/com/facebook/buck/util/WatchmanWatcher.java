@@ -18,6 +18,7 @@ package com.facebook.buck.util;
 
 
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectWatch;
@@ -48,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
@@ -95,8 +97,7 @@ public class WatchmanWatcher {
         createQueries(
             projectWatch,
             ignorePaths,
-            watchman.getCapabilities(),
-            cursors),
+            watchman.getCapabilities()),
         cursors);
   }
 
@@ -117,18 +118,12 @@ public class WatchmanWatcher {
   static ImmutableMap<Path, WatchmanQuery> createQueries(
       ImmutableMap<Path, ProjectWatch> projectWatches,
       ImmutableSet<PathOrGlobMatcher> ignorePaths,
-      Set<Capability> watchmanCapabilities,
-      Map<Path, WatchmanCursor> cursors) {
+      Set<Capability> watchmanCapabilities) {
     ImmutableMap.Builder<Path, WatchmanQuery> watchmanQueryBuilder = ImmutableMap.builder();
     for (Map.Entry<Path, ProjectWatch> entry : projectWatches.entrySet()) {
-      WatchmanCursor cursor = cursors.get(entry.getKey());
       watchmanQueryBuilder.put(
           entry.getKey(),
-          createQuery(
-              entry.getValue(),
-              ignorePaths,
-              watchmanCapabilities,
-              Optional.ofNullable(cursor)));
+          createQuery(entry.getValue(), ignorePaths, watchmanCapabilities));
     }
     return watchmanQueryBuilder.build();
   }
@@ -137,8 +132,7 @@ public class WatchmanWatcher {
   static WatchmanQuery createQuery(
       ProjectWatch projectWatch,
       ImmutableSet<PathOrGlobMatcher> ignorePaths,
-      Set<Capability> watchmanCapabilities,
-      Optional<WatchmanCursor> cursor) {
+      Set<Capability> watchmanCapabilities) {
     String watchRoot = projectWatch.getWatchRoot();
     Optional<String> watchPrefix = projectWatch.getProjectPrefix();
 
@@ -197,54 +191,15 @@ public class WatchmanWatcher {
     Map<String, Object> sinceParams = new LinkedHashMap<>();
     sinceParams.put(
         "expression",
-        createSinceExpression(cursor, excludeAnyOf));
+        Lists.newArrayList(
+            "not",
+            excludeAnyOf));
     sinceParams.put("empty_on_fresh_instance", true);
     sinceParams.put("fields", Lists.newArrayList("name", "exists", "new"));
-    watchPrefix.ifPresent(s -> sinceParams.put("relative_root", s));
-    return WatchmanQuery.of(watchRoot, sinceParams);
-  }
-
-  private static ImmutableList<Object> createSinceExpression(
-      Optional<WatchmanCursor> cursor,
-      List<Object> excludeAnyOf) {
-    ImmutableList.Builder<Object> builder = ImmutableList.builder();
-    builder.add("allof");
-    builder.add(Lists.newArrayList("not", excludeAnyOf));
-    if (cursor.isPresent() && cursor.get().getType() == WatchmanCursor.Type.CLOCK_ID) {
-      builder.add(getExpressionToExcludeCreatedAndDeletedFiles(cursor.get()));
+    if (watchPrefix.isPresent()) {
+      sinceParams.put("relative_root", watchPrefix.get());
     }
-    return builder.build();
-  }
-
-  /**
-   * This method creates an expression that filters out watchman events when some file has been
-   * created and then deleted between two Buck invocations. Typical case:
-   *
-   * - user calls `buck build`.
-   * - user edits some source code using editor that creates a temporary file on disk.
-   *   E.g. vim does this.
-   * - user Saves his changes in the editor, so editor deletes its temporary file.
-   * - user calls `buck build` again.
-   *
-   * As you can see, temporary file has been created and then deleted between two buck invocations.
-   * This fact does not affect the buck output at all. Without the expression that this method
-   * generates, buck will receive a pair of events: FileCreated and FileDeleted. They will
-   * likely invalidate our parser/action graph caches, slowing down the following rebuild.
-   *
-   * With this part of Watchman expression, we will filter the created-and-then-deleted-file
-   * events.
-   *
-   * @param cursor Watchman clock since when the created and deleted events should be filtered
-   * @return Part of the expression, which usually should be combined using `allof()` with another
-   * expression.
-   */
-  private static List<Object> getExpressionToExcludeCreatedAndDeletedFiles(WatchmanCursor cursor) {
-    return Lists.newArrayList(
-        "not",
-        Lists.newArrayList(
-            "allof",
-            Lists.newArrayList("since", cursor.get(), "cclock"),
-            Lists.newArrayList("not", "exists")));
+    return WatchmanQuery.of(watchRoot, sinceParams);
   }
 
   @VisibleForTesting
@@ -268,12 +223,17 @@ public class WatchmanWatcher {
       BuckEventBus buckEventBus,
       FreshInstanceAction freshInstanceAction
   ) throws IOException, InterruptedException {
+    // Speculatively set to false
+    AtomicBoolean filesHaveChanged = new AtomicBoolean(false);
     for (Path cellPath : queries.keySet()) {
       WatchmanQuery query = queries.get(cellPath);
       WatchmanCursor cursor = cursors.get(cellPath);
       if (query != null && cursor != null) {
-        postEvents(buckEventBus, freshInstanceAction, query, cursor);
+        postEvents(buckEventBus, freshInstanceAction, query, cursor, filesHaveChanged);
       }
+    }
+    if (!filesHaveChanged.get()) {
+      buckEventBus.post(WatchmanStatusEvent.zeroFileChanges());
     }
   }
 
@@ -282,7 +242,8 @@ public class WatchmanWatcher {
       BuckEventBus buckEventBus,
       FreshInstanceAction freshInstanceAction,
       WatchmanQuery query,
-      WatchmanCursor cursor) throws IOException, InterruptedException {
+      WatchmanCursor cursor,
+      AtomicBoolean filesHaveChanged) throws IOException, InterruptedException {
     try {
       Optional<? extends Map<String, ? extends Object>> queryResponse =
           watchmanClient.queryWithTimeout(
@@ -295,6 +256,7 @@ public class WatchmanWatcher {
             timeoutMillis);
         postWatchEvent(
             createOverflowEvent("Query to Watchman timed out after " + timeoutMillis + "ms"));
+        filesHaveChanged.set(true);
         return;
       }
 
@@ -308,6 +270,15 @@ public class WatchmanWatcher {
             "Error in Watchman output. Posting an overflow event to flush the caches");
         postWatchEvent(createOverflowEvent("Watchman Error occurred - " + e.getMessage()));
         throw e;
+      }
+
+      if (cursor.get().startsWith("c:")) {
+        // Update the clockId
+        String newCursor = Optional
+          .ofNullable((String) response.get("clock"))
+          .orElse(Watchman.NULL_CLOCK);
+        LOG.debug("Updating Watchman Cursor from %s to %s", cursor.get(), newCursor);
+        cursor.set(newCursor);
       }
 
       String warning = (String) response.get("warning");
@@ -329,15 +300,8 @@ public class WatchmanWatcher {
             postWatchEvent(createOverflowEvent("New Buck instance"));
             break;
         }
+        filesHaveChanged.set(true);
         return;
-      }
-      if (cursor.get().startsWith("c:")) {
-        // Update the clockId
-        String newCursor = Optional
-          .ofNullable((String) response.get("clock"))
-          .orElse(Watchman.NULL_CLOCK);
-        LOG.debug("Updating Watchman Cursor from %s to %s", cursor.get(), newCursor);
-        cursor.set(newCursor);
       }
 
       List<Map<String, Object>> files = (List<Map<String, Object>>) response.get("files");
@@ -347,6 +311,7 @@ public class WatchmanWatcher {
           if (fileName == null) {
             LOG.warn("Filename missing from Watchman file response %s", file);
             postWatchEvent(createOverflowEvent("Filename missing from Watchman response"));
+            filesHaveChanged.set(true);
             return;
           }
           PathEventBuilder builder = new PathEventBuilder();
@@ -362,7 +327,15 @@ public class WatchmanWatcher {
           postWatchEvent(builder.build());
         }
 
+        if (!files.isEmpty() || freshInstanceAction == FreshInstanceAction.NONE) {
+          filesHaveChanged.set(true);
+        }
+
         LOG.debug("Posted %d Watchman events.", files.size());
+      } else {
+        if (freshInstanceAction == FreshInstanceAction.NONE) {
+          filesHaveChanged.set(true);
+        }
       }
     } catch (InterruptedException e) {
       String message = "Watchman communication interrupted";

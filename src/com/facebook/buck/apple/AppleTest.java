@@ -16,16 +16,15 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
@@ -33,6 +32,7 @@ import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
@@ -66,7 +66,6 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
-import javax.annotation.Nullable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class AppleTest
@@ -92,7 +91,7 @@ public class AppleTest
   private final Optional<ImmutableMap<String, String>> destinationSpecifier;
 
   @AddToRuleKey
-  private final BuildRule testBundle;
+  private final AppleBundle testBundle;
 
   @AddToRuleKey
   private final Optional<AppleBundle> testHostApp;
@@ -113,6 +112,7 @@ public class AppleTest
   private final Optional<Either<SourcePath, String>> snapshotReferenceImagesPath;
 
   private Optional<Long> testRuleTimeoutMs;
+  private final SourcePathRuleFinder ruleFinder;
 
   private Optional<AppleTestXctoolStdoutReader> xctoolStdoutReader;
   private Optional<AppleTestXctestOutputReader> xctestOutputReader;
@@ -186,7 +186,7 @@ public class AppleTest
       Optional<String> defaultDestinationSpecifier,
       Optional<ImmutableMap<String, String>> destinationSpecifier,
       BuildRuleParams params,
-      BuildRule testBundle,
+      AppleBundle testBundle,
       Optional<AppleBundle> testHostApp,
       ImmutableSet<String> contacts,
       ImmutableSet<Label> labels,
@@ -197,7 +197,8 @@ public class AppleTest
       String testLogLevel,
       Optional<Long> testRuleTimeoutMs,
       boolean isUiTest,
-      Optional<Either<SourcePath, String>> snapshotReferenceImagesPath) {
+      Optional<Either<SourcePath, String>> snapshotReferenceImagesPath,
+      SourcePathRuleFinder ruleFinder) {
     super(params);
     this.xctool = xctool;
     this.xctoolStutterTimeout = xctoolStutterTimeout;
@@ -212,6 +213,7 @@ public class AppleTest
     this.labels = labels;
     this.runTestSeparately = runTestSeparately;
     this.testRuleTimeoutMs = testRuleTimeoutMs;
+    this.ruleFinder = ruleFinder;
     this.testOutputPath = getPathToTestOutputDirectory().resolve("test-output.json");
     this.testLogsPath = getPathToTestOutputDirectory().resolve("logs");
     this.xctoolStdoutReader = Optional.empty();
@@ -251,8 +253,8 @@ public class AppleTest
         .setLabels(getLabels())
         .setContacts(getContacts());
 
-    Path resolvedTestBundleDirectory = getProjectFilesystem().resolve(
-        Preconditions.checkNotNull(testBundle.getPathToOutput()));
+    Path resolvedTestBundleDirectory = pathResolver.getAbsolutePath(
+        Preconditions.checkNotNull(testBundle.getSourcePathToOutput()));
 
     Path pathToTestOutput = getProjectFilesystem().resolve(
         getPathToTestOutputDirectory());
@@ -266,8 +268,8 @@ public class AppleTest
 
     Optional<Path> testHostAppPath = Optional.empty();
     if (testHostApp.isPresent()) {
-      Path resolvedTestHostAppDirectory = getProjectFilesystem().resolve(
-          Preconditions.checkNotNull(testHostApp.get().getPathToOutput()));
+      Path resolvedTestHostAppDirectory = pathResolver.getAbsolutePath(
+          Preconditions.checkNotNull(testHostApp.get().getSourcePathToOutput()));
       testHostAppPath = Optional.of(
           resolvedTestHostAppDirectory.resolve(
               testHostApp.get().getUnzippedOutputFilePathToBinary()));
@@ -330,6 +332,7 @@ public class AppleTest
               xctoolStdoutReader,
               xcodeDeveloperDirSupplier,
               options.getTestSelectorList(),
+              context.isDebugEnabled(),
               Optional.of(testLogDirectoryEnvironmentVariable),
               Optional.of(resolvedTestLogsPath),
               Optional.of(testLogLevelEnvironmentVariable),
@@ -453,14 +456,16 @@ public class AppleTest
 
   // This test rule just executes the test bundle, so we need it available locally.
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     return Stream
         .concat(
             Stream
                 .concat(Stream.of(testBundle), OptionalCompat.asSet(testHostApp).stream())
-                .map(HasBuildTarget::getBuildTarget)
-                .map(BuildTargetSourcePath::new),
-            OptionalCompat.asSet(xctool).stream());
+                .map(BuildRule::getBuildTarget),
+            OptionalCompat.asSet(xctool).stream()
+                .map(ruleFinder::filterBuildRuleInputs)
+                .flatMap(ImmutableSet::stream)
+                .map(BuildRule::getBuildTarget));
   }
 
   @Override
@@ -488,7 +493,6 @@ public class AppleTest
     return ImmutableList.of();
   }
 
-  @Nullable
   @Override
   public Path getPathToOutput() {
     return testBundle.getPathToOutput();

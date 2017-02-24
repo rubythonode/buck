@@ -21,16 +21,16 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExportDependencies;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
@@ -104,7 +104,7 @@ public class JavaTest
 
   private final JavaLibrary compiledTestsLibrary;
 
-  private final ImmutableSet<Path> additionalClasspathEntries;
+  private final ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries;
   @AddToRuleKey
   private final JavaRuntimeLauncher javaRuntimeLauncher;
 
@@ -154,7 +154,7 @@ public class JavaTest
       BuildRuleParams params,
       SourcePathResolver resolver,
       JavaLibrary compiledTestsLibrary,
-      ImmutableSet<Path> additionalClasspathEntries,
+      ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries,
       Set<Label> labels,
       Set<String> contacts,
       TestType testType,
@@ -170,6 +170,16 @@ public class JavaTest
       Optional<Level> stdErrLogLevel) {
     super(params, resolver);
     this.compiledTestsLibrary = compiledTestsLibrary;
+
+    for (Either<SourcePath, Path> path : additionalClasspathEntries) {
+      if (path.isRight()) {
+        Preconditions.checkState(
+            path.getRight().isAbsolute(),
+            "Additional classpath entries must be absolute but got %s",
+            path.getRight());
+      }
+    }
+
     this.additionalClasspathEntries = additionalClasspathEntries;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.vmArgs = ImmutableList.copyOf(vmArgs);
@@ -210,6 +220,7 @@ public class JavaTest
 
   private JUnitStep getJUnitStep(
       ExecutionContext executionContext,
+      SourcePathResolver pathResolver,
       TestRunningOptions options,
       Optional<Path> outDir,
       Optional<Path> robolectricLogPath,
@@ -220,6 +231,7 @@ public class JavaTest
 
     ImmutableList<String> properVmArgs = amendVmArgs(
         this.vmArgs,
+        pathResolver,
         executionContext.getTargetDevice());
 
     BuckEventBus buckEventBus = executionContext.getBuckEventBus();
@@ -291,6 +303,7 @@ public class JavaTest
         junitsBuilder.add(
           getJUnitStep(
               executionContext,
+              pathResolver,
               options,
               Optional.of(pathToTestOutput),
               Optional.of(pathToTestLogs),
@@ -302,6 +315,7 @@ public class JavaTest
       junits = ImmutableList.of(
           getJUnitStep(
             executionContext,
+            pathResolver,
             options,
             Optional.of(pathToTestOutput),
             Optional.of(pathToTestLogs),
@@ -328,13 +342,13 @@ public class JavaTest
     return reorderedClassNames;
   }
 
-  @VisibleForTesting
   ImmutableList<String> amendVmArgs(
       ImmutableList<String> existingVmArgs,
+      SourcePathResolver pathResolver,
       Optional<TargetDevice> targetDevice) {
     ImmutableList.Builder<String> vmArgs = ImmutableList.builder();
     vmArgs.addAll(existingVmArgs);
-    onAmendVmArgs(vmArgs, targetDevice);
+    onAmendVmArgs(vmArgs, pathResolver, targetDevice);
     return vmArgs.build();
   }
 
@@ -342,8 +356,10 @@ public class JavaTest
    * Override this method if you need to amend vm args. Subclasses are required
    * to call super.onAmendVmArgs(...).
    */
-  protected void onAmendVmArgs(ImmutableList.Builder<String> vmArgsBuilder,
-                               Optional<TargetDevice> targetDevice) {
+  protected void onAmendVmArgs(
+      ImmutableList.Builder<String> vmArgsBuilder,
+      @SuppressWarnings("unused") SourcePathResolver pathResolver,
+      Optional<TargetDevice> targetDevice) {
     if (!targetDevice.isPresent()) {
       return;
     }
@@ -629,7 +645,7 @@ public class JavaTest
   }
 
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     return Stream
         .concat(
             // By the end of the build, all the transitive Java library dependencies *must* be
@@ -641,8 +657,7 @@ public class JavaTest
             // this rules first-order deps to runtime deps, so that these potential tools are
             // available when this test runs.
             compiledTestsLibrary.getDeps().stream())
-        .map(HasBuildTarget::getBuildTarget)
-        .map(BuildTargetSourcePath::new);
+        .map(BuildRule::getBuildTarget);
   }
 
   @Override
@@ -658,6 +673,7 @@ public class JavaTest
     JUnitStep jUnitStep =
         getJUnitStep(
             executionContext,
+            pathResolver,
             options,
             Optional.empty(),
             Optional.empty(),
@@ -674,7 +690,7 @@ public class JavaTest
   }
 
   @Override
-  public ImmutableList<Step> getPostBuildSteps() {
+  public ImmutableList<Step> getPostBuildSteps(BuildContext buildContext) {
     return ImmutableList.<Step>builder()
         .add(new MkdirStep(getProjectFilesystem(), getClassPathFile().getParent()))
         .add(
@@ -683,9 +699,13 @@ public class JavaTest
               public StepExecutionResult execute(ExecutionContext context) throws IOException {
                 ImmutableSet<Path> classpathEntries = ImmutableSet.<Path>builder()
                     .addAll(compiledTestsLibrary.getTransitiveClasspaths().stream()
-                        .map(getResolver()::getAbsolutePath)
+                        .map(buildContext.getSourcePathResolver()::getAbsolutePath)
                         .collect(MoreCollectors.toImmutableSet()))
-                    .addAll(additionalClasspathEntries)
+                    .addAll(additionalClasspathEntries.stream()
+                        .map(e -> e.isLeft() ?
+                            buildContext.getSourcePathResolver().getAbsolutePath(e.getLeft())
+                            : e.getRight())
+                        .collect(MoreCollectors.toImmutableSet()))
                     .addAll(getBootClasspathEntries(context))
                     .build();
                 getProjectFilesystem().writeLinesToPath(

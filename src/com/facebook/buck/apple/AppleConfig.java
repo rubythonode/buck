@@ -274,7 +274,7 @@ public class AppleConfig {
   }
 
 
-  public Optional<Path> getAppleDeviceHelperPath() {
+  public Optional<Path> getAppleDeviceHelperAbsolutePath() {
     return getOptionalPath("apple", "device_helper_path");
   }
 
@@ -304,6 +304,20 @@ public class AppleConfig {
         "apple",
         "use_header_maps_in_xcode",
         true);
+  }
+
+  public boolean shouldMergeHeaderMapsInXcodeProject() {
+    return delegate.getBooleanValue(
+        "apple",
+        "merge_header_maps_in_xcode",
+        false);
+  }
+
+  public boolean shouldGenerateHeaderSymlinkTreesOnly() {
+    return delegate.getBooleanValue(
+        "apple",
+        "generate_header_symlink_tree_only",
+        false);
   }
 
   public String getTestLogDirectoryEnvironmentVariable() {

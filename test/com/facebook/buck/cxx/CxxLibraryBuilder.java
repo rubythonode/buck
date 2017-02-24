@@ -19,9 +19,11 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -29,9 +31,11 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-public class CxxLibraryBuilder
-    extends
-    AbstractCxxSourceBuilder<CxxLibraryDescription.Arg, CxxLibraryDescription, CxxLibraryBuilder> {
+public class CxxLibraryBuilder extends AbstractCxxSourceBuilder<
+    CxxLibraryDescription.Arg,
+    CxxLibraryDescription,
+    BuildRule,
+    CxxLibraryBuilder> {
 
   public CxxLibraryBuilder(
       BuildTarget target,
@@ -81,13 +85,14 @@ public class CxxLibraryBuilder
     return this;
   }
 
-  public CxxLibraryBuilder setExportedLinkerFlags(ImmutableList<String> exportedLinkerFlags) {
+  public CxxLibraryBuilder setExportedLinkerFlags(
+      ImmutableList<StringWithMacros> exportedLinkerFlags) {
     arg.exportedLinkerFlags = exportedLinkerFlags;
     return this;
   }
 
   public CxxLibraryBuilder setExportedPlatformLinkerFlags(
-      PatternMatchedCollection<ImmutableList<String>> exportedPlatformLinkerFlags) {
+      PatternMatchedCollection<ImmutableList<StringWithMacros>> exportedPlatformLinkerFlags) {
     arg.exportedPlatformLinkerFlags = exportedPlatformLinkerFlags;
     return this;
   }

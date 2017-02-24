@@ -33,7 +33,11 @@ import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
+import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
+import com.facebook.buck.rules.keys.RuleKeyCacheScope;
+import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.versions.VersionException;
@@ -102,38 +106,50 @@ public class FetchCommand extends BuildCommand {
 
       CachingBuildEngineBuckConfig cachingBuildEngineBuckConfig =
           params.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
-      try (Build build = createBuild(
-          params.getBuckConfig(),
-          actionGraphAndResolver.getActionGraph(),
-          actionGraphAndResolver.getResolver(),
-          params.getCell(),
-          params.getAndroidPlatformTargetSupplier(),
-          new CachingBuildEngine(
-              new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
-              pool.getExecutor(),
-              pool.getExecutor(),
-              new DefaultStepRunner(),
-              getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
-              cachingBuildEngineBuckConfig.getBuildDepFiles(),
-              cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
-              cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-              cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-              params.getObjectMapper(),
-              actionGraphAndResolver.getResolver(),
-              params.getBuckConfig().getKeySeed(),
-              cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo()),
-          params.getArtifactCacheFactory().newInstance(),
-          params.getConsole(),
-          params.getBuckEventBus(),
-          Optional.empty(),
-          params.getPersistentWorkerPools(),
-          params.getPlatform(),
-          params.getEnvironment(),
-          params.getObjectMapper(),
-          params.getClock(),
-          Optional.empty(),
-          Optional.empty(),
-          params.getExecutors())) {
+      LocalCachingBuildEngineDelegate localCachingBuildEngineDelegate =
+          new LocalCachingBuildEngineDelegate(params.getFileHashCache());
+      try (RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
+               getDefaultRuleKeyCacheScope(
+                   params,
+                   new RuleKeyCacheRecycler.SettingsAffectingCache(
+                       params.getBuckConfig().getKeySeed(),
+                       actionGraphAndResolver.getActionGraph()));
+           Build build = createBuild(
+               params.getBuckConfig(),
+               actionGraphAndResolver.getActionGraph(),
+               actionGraphAndResolver.getResolver(),
+               params.getCell(),
+               params.getAndroidPlatformTargetSupplier(),
+               new CachingBuildEngine(
+                   localCachingBuildEngineDelegate,
+                   pool.getExecutor(),
+                   pool.getExecutor(),
+                   new DefaultStepRunner(),
+                   getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
+                   cachingBuildEngineBuckConfig.getBuildDepFiles(),
+                   cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
+                   cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
+                   params.getObjectMapper(),
+                   actionGraphAndResolver.getResolver(),
+                   cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
+                   new RuleKeyFactoryManager(
+                       params.getBuckConfig().getKeySeed(),
+                       localCachingBuildEngineDelegate.createFileHashCacheLoader()::getUnchecked,
+                       actionGraphAndResolver.getResolver(),
+                       cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
+                       ruleKeyCacheScope.getCache())),
+               params.getArtifactCacheFactory().newInstance(),
+               params.getConsole(),
+               params.getBuckEventBus(),
+               Optional.empty(),
+               params.getPersistentWorkerPools(),
+               params.getPlatform(),
+               params.getEnvironment(),
+               params.getObjectMapper(),
+               params.getClock(),
+               Optional.empty(),
+               Optional.empty(),
+               params.getExecutors())) {
         exitCode = build.executeAndPrintFailuresToEventBus(
             buildTargets,
             isKeepGoing(),

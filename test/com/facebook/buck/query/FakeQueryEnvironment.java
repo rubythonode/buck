@@ -35,7 +35,7 @@ public class FakeQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public Set<QueryTarget> getTargetsMatchingPattern(
+  public ImmutableSet<QueryTarget> getTargetsMatchingPattern(
       String pattern,
       ListeningExecutorService executor)
       throws QueryException, InterruptedException {
@@ -43,7 +43,7 @@ public class FakeQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public Set<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets)
+  public ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets)
       throws QueryException, InterruptedException {
     throw new QueryException("Method not implemented in FakeQueryEnvironment");
   }

@@ -103,7 +103,7 @@ public class WorkerToolTest {
         .newWorkerToolBuilder(BuildTargetFactory.newInstance("//:worker_rule"))
         .setExe(shBinaryRule.getBuildTarget())
         .setArgs("--input $(location //:file)");
-    DefaultWorkerTool workerTool = (DefaultWorkerTool) workerToolBuilder.build(resolver);
+    DefaultWorkerTool workerTool = workerToolBuilder.build(resolver);
 
     assertThat(
         workerToolBuilder.findImplicitDeps(),
@@ -112,8 +112,8 @@ public class WorkerToolTest {
     assertThat(
         workerTool.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
         Matchers.hasItems(
-            new BuildTargetSourcePath(shBinaryRule.getBuildTarget()),
-            new BuildTargetSourcePath(exportFileRule.getBuildTarget())));
+            shBinaryRule.getBuildTarget(),
+            exportFileRule.getBuildTarget()));
     assertThat(
         workerTool.getArgs(), Matchers.containsString(
             pathResolver.getAbsolutePath(
@@ -139,7 +139,7 @@ public class WorkerToolTest {
         .newWorkerToolBuilder(BuildTargetFactory.newInstance("//:worker_rule"))
         .setExe(shBinaryRule.getBuildTarget())
         .setArgs("--input", "$(location //:file)");
-    WorkerTool workerTool = (WorkerTool) workerToolBuilder.build(resolver);
+    WorkerTool workerTool = workerToolBuilder.build(resolver);
 
     assertThat(
         workerTool.getTool().getInputs(),

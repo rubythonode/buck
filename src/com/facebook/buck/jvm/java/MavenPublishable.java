@@ -17,12 +17,12 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.SourcePath;
 
-import java.nio.file.Path;
 import java.util.Optional;
 
 /**
- * A {@link BuildRule} that can have its output({@link #getPathToOutput}) published to a
+ * A {@link BuildRule} that can have its output({@link #getSourcePathToOutput}) published to a
  * maven repository under the maven coordinates provided by {@link #getMavenCoords}
  */
 public interface MavenPublishable extends HasMavenCoordinates {
@@ -42,5 +42,5 @@ public interface MavenPublishable extends HasMavenCoordinates {
   /**
    * @return A template for the pom.xml to be generated when publishing this artifact.
    */
-  Optional<Path> getPomTemplate();
+  Optional<SourcePath> getPomTemplate();
 }

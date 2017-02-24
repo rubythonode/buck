@@ -16,21 +16,20 @@
 
 package com.facebook.buck.python;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
@@ -43,6 +42,7 @@ import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
@@ -50,6 +50,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -61,6 +62,8 @@ public class PythonTest
     extends AbstractBuildRule
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
 
+  private final SourcePathRuleFinder ruleFinder;
+  private final Supplier<ImmutableSortedSet<BuildRule>> originalDeclaredDeps;
   @AddToRuleKey
   private final Supplier<ImmutableMap<String, String>> env;
   private final PythonBinary binary;
@@ -68,9 +71,29 @@ public class PythonTest
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
   private final ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage;
-  private final SourcePathRuleFinder ruleFinder;
 
-  public PythonTest(
+  private PythonTest(
+      BuildRuleParams params,
+      SourcePathRuleFinder ruleFinder,
+      Supplier<ImmutableSortedSet<BuildRule>> originalDeclaredDeps,
+      final Supplier<ImmutableMap<String, String>> env,
+      final PythonBinary binary,
+      ImmutableSet<Label> labels,
+      ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
+      Optional<Long> testRuleTimeoutMs,
+      ImmutableSet<String> contacts) {
+    super(params);
+    this.ruleFinder = ruleFinder;
+    this.originalDeclaredDeps = originalDeclaredDeps;
+    this.env = env;
+    this.binary = binary;
+    this.labels = labels;
+    this.neededCoverage = neededCoverage;
+    this.testRuleTimeoutMs = testRuleTimeoutMs;
+    this.contacts = contacts;
+  }
+
+  public static PythonTest from(
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       final Supplier<ImmutableMap<String, String>> env,
@@ -79,22 +102,24 @@ public class PythonTest
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
-
-    super(params);
-    this.ruleFinder = ruleFinder;
-
-    this.env = Suppliers.memoize(
-        () -> {
-          ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-          environment.putAll(binary.getExecutableCommand().getEnvironment());
-          environment.putAll(env.get());
-          return environment.build();
-        });
-    this.binary = binary;
-    this.labels = labels;
-    this.neededCoverage = neededCoverage;
-    this.testRuleTimeoutMs = testRuleTimeoutMs;
-    this.contacts = contacts;
+    return new PythonTest(
+        params.copyWithDeps(
+            Suppliers.ofInstance(ImmutableSortedSet.of(binary)),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        ruleFinder,
+        params.getDeclaredDeps(),
+        Suppliers.memoize(
+            () -> {
+              ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
+              environment.putAll(binary.getExecutableCommand().getEnvironment());
+              environment.putAll(env.get());
+              return environment.build();
+            }),
+        binary,
+        labels,
+        neededCoverage,
+        testRuleTimeoutMs,
+        contacts);
   }
 
   @Override
@@ -188,13 +213,13 @@ public class PythonTest
   // a {@link PythonBinary} rule, which is the actual test binary.  Therefore, we *need* this
   // rule around to run this test, so model this via the {@link HasRuntimeDeps} interface.
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
-    return Stream
+  public Stream<BuildTarget> getRuntimeDeps() {
+    return RichStream.<BuildTarget>empty()
+        .concat(originalDeclaredDeps.get().stream().map(BuildRule::getBuildTarget))
+        .concat(binary.getRuntimeDeps())
         .concat(
-            binary.getExecutableCommand().getDeps(ruleFinder).stream(),
-            getDeclaredDeps().stream())
-        .map(HasBuildTarget::getBuildTarget)
-        .map(BuildTargetSourcePath::new);
+            binary.getExecutableCommand().getDeps(ruleFinder).stream()
+                .map(BuildRule::getBuildTarget));
   }
 
   @Override

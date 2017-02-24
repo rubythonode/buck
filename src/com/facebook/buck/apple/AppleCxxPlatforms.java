@@ -138,6 +138,7 @@ public class AppleCxxPlatforms {
     // TODO(bhamiltoncx): Add more and better cflags.
     ImmutableList.Builder<String> cflagsBuilder = ImmutableList.builder();
     cflagsBuilder.add("-isysroot", sdkPaths.getSdkPath().toString());
+    cflagsBuilder.add("-iquote", filesystem.getRootPath().toString());
     cflagsBuilder.add("-arch", targetArchitecture);
     cflagsBuilder.add(targetSdk.getApplePlatform().getMinVersionFlagPrefix() + minVersion);
 
@@ -302,7 +303,8 @@ public class AppleCxxPlatforms {
         Paths.get("."),
         sanitizerPaths.build(),
         filesystem.getRootPath().toAbsolutePath(),
-        CxxToolProvider.Type.CLANG);
+        CxxToolProvider.Type.CLANG,
+        filesystem);
     DebugPathSanitizer assemblerDebugPathSanitizer = new MungingDebugPathSanitizer(
         config.getDebugPathSanitizerLimit(),
         File.separatorChar,
@@ -383,7 +385,7 @@ public class AppleCxxPlatforms {
       whitelistBuilder.add("^" + Pattern.quote(toolchainPath.toString()) + "\\/.*");
     }
     HeaderVerification headerVerification =
-        config.getHeaderVerification().withAdditionalWhitelist(whitelistBuilder.build());
+        config.getHeaderVerification().withPlatformWhitelist(whitelistBuilder.build());
 
     CxxPlatform cxxPlatform = CxxPlatforms.build(
         targetFlavor,

@@ -214,7 +214,7 @@ public class SmartDexingStep implements Step {
       MoreFutures.getAll(executorService, callables);
     } catch (ExecutionException e) {
       Throwable cause = e.getCause();
-      Throwables.propagateIfInstanceOf(cause, StepFailedException.class);
+      Throwables.throwIfInstanceOf(cause, StepFailedException.class);
 
       // Programmer error.  Boo-urns.
       throw new RuntimeException(cause);
@@ -269,7 +269,7 @@ public class SmartDexingStep implements Step {
    * Once the {@code .class} files have been split into separate zip files, each must be converted
    * to a {@code .dex} file.
    */
-  private List<Step> generateDxCommands(
+  private ImmutableList<Step> generateDxCommands(
       ProjectFilesystem filesystem,
       Multimap<Path, Path> outputToInputs) {
     ImmutableList.Builder<DxPseudoRule> pseudoRules = ImmutableList.builder();
@@ -374,7 +374,7 @@ public class SmartDexingStep implements Step {
       return newInputsHash.equals(currentInputsHash);
     }
 
-    public List<Step> buildInternal() {
+    private ImmutableList<Step> buildInternal() {
       Preconditions.checkState(newInputsHash != null, "Must call checkIsCached first!");
 
       List<Step> steps = Lists.newArrayList();
@@ -426,7 +426,7 @@ public class SmartDexingStep implements Step {
               repackedJar,
               ImmutableSet.of("classes.dex"),
               ZipCompressionLevel.MIN_COMPRESSION_LEVEL));
-      steps.add(new RmStep(filesystem, tempDexJarOutput, RmStep.Mode.FORCED));
+      steps.add(new RmStep(filesystem, tempDexJarOutput));
       steps.add(
           new DexJarAnalysisStep(
               filesystem,
@@ -452,7 +452,7 @@ public class SmartDexingStep implements Step {
               outputPath,
               ImmutableSet.of("classes.dex"),
               ZipCompressionLevel.MIN_COMPRESSION_LEVEL));
-      steps.add(new RmStep(filesystem, tempDexJarOutput, RmStep.Mode.FORCED));
+      steps.add(new RmStep(filesystem, tempDexJarOutput));
 
       // Write a .meta file.
       steps.add(

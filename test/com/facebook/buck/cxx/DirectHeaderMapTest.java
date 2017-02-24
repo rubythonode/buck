@@ -38,7 +38,8 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -63,12 +64,14 @@ public class DirectHeaderMapTest {
   private ProjectFilesystem projectFilesystem;
   private BuildTarget buildTarget;
   private DirectHeaderMap buildRule;
+  private BuildRuleResolver ruleResolver;
   private SourcePathResolver pathResolver;
   private ImmutableMap<Path, SourcePath> links;
   private Path symlinkTreeRoot;
   private Path headerMapPath;
   private Path file1;
   private Path file2;
+  private SourcePathRuleFinder ruleFinder;
 
   @Before
   public void setUp() throws Exception {
@@ -103,17 +106,21 @@ public class DirectHeaderMapTest {
         BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/symlink-tree-root");
 
     // Setup the symlink tree buildable.
-    pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(
-            TargetGraph.EMPTY,
-            new DefaultTargetNodeToBuildRuleTransformer())
-    ));
+    ruleResolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+
+    ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    pathResolver = new SourcePathResolver(ruleFinder);
+
     buildRule = new DirectHeaderMap(
         new FakeBuildRuleParamsBuilder(buildTarget).build(),
         symlinkTreeRoot,
-        links);
+        links,
+        ruleFinder);
+    ruleResolver.addToIndex(buildRule);
 
-    headerMapPath = buildRule.getPathToOutput();
+    headerMapPath = pathResolver.getRelativePath(buildRule.getSourcePathToOutput());
   }
 
   @Test
@@ -124,7 +131,8 @@ public class DirectHeaderMapTest {
 
     ImmutableList<Step> expectedBuildSteps =
         ImmutableList.of(
-            new MakeCleanDirectoryStep(filesystem, symlinkTreeRoot),
+            new MkdirStep(filesystem, headerMapPath.getParent()),
+            new RmStep(filesystem, headerMapPath),
             new HeaderMapStep(
                 filesystem,
                 headerMapPath,
@@ -153,7 +161,8 @@ public class DirectHeaderMapTest {
             Paths.get("different/link"),
             new PathSourcePath(
                 projectFilesystem,
-                MorePaths.relativize(tmpDir.getRoot(), aFile))));
+                MorePaths.relativize(tmpDir.getRoot(), aFile))),
+        ruleFinder);
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())

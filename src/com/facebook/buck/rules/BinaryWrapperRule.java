@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.HasBuildTarget;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
 
@@ -47,11 +47,10 @@ public abstract class BinaryWrapperRule
   }
 
   @Override
-  public final Stream<SourcePath> getRuntimeDeps() {
+  public final Stream<BuildTarget> getRuntimeDeps() {
     return Stream
         .concat(getDeclaredDeps().stream(), getExecutableCommand().getDeps(ruleFinder).stream())
-        .map(HasBuildTarget::getBuildTarget)
-        .map(BuildTargetSourcePath::new);
+        .map(BuildRule::getBuildTarget);
   }
 
 }

@@ -27,17 +27,23 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
+import com.google.common.hash.HashCode;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
 
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Objects;
 
 import javax.annotation.Nullable;
 
@@ -50,6 +56,10 @@ public class ActionGraphCache {
 
   @Nullable
   private Pair<TargetGraph, ActionGraphAndResolver> lastActionGraph;
+
+  @Nullable
+  private HashCode lastTargetGraphHash;
+
   private BroadcastEventListener broadcastEventListener;
 
   public ActionGraphCache(BroadcastEventListener broadcastEventListener) {
@@ -72,19 +82,26 @@ public class ActionGraphCache {
     ActionGraphEvent.Started started = ActionGraphEvent.started();
     eventBus.post(started);
     try {
+      RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(keySeed);
       if (lastActionGraph != null && lastActionGraph.getFirst().equals(targetGraph)) {
         eventBus.post(ActionGraphEvent.Cache.hit());
         LOG.info("ActionGraph cache hit.");
         if (checkActionGraphs) {
-          compareActionGraphs(eventBus, lastActionGraph.getSecond(), targetGraph, keySeed);
+          compareActionGraphs(eventBus, lastActionGraph.getSecond(), targetGraph, fieldLoader);
         }
       } else {
-        eventBus.post(ActionGraphEvent.Cache.miss());
+        eventBus.post(ActionGraphEvent.Cache.miss(lastActionGraph == null));
+        LOG.debug("Computing TargetGraph HashCode...");
+        HashCode targetGraphHash = getTargetGraphHash(targetGraph);
         if (lastActionGraph == null) {
           LOG.info("ActionGraph cache miss. Cache was empty.");
+        } else if (Objects.equals(lastTargetGraphHash, targetGraphHash)) {
+          LOG.info("ActionGraph cache miss. TargetGraphs mismatched but hashes are the same.");
+          eventBus.post(ActionGraphEvent.Cache.missWithTargetGraphHashMatch());
         } else {
           LOG.info("ActionGraph cache miss. TargetGraphs mismatched.");
         }
+        lastTargetGraphHash = targetGraphHash;
         lastActionGraph = new Pair<TargetGraph, ActionGraphAndResolver>(
             targetGraph,
             createActionGraph(
@@ -140,9 +157,6 @@ public class ActionGraphCache {
       TargetGraph targetGraph) {
     final BuildRuleResolver resolver = new BuildRuleResolver(targetGraph, transformer, eventBus);
 
-    final int numberOfNodes = targetGraph.getNodes().size();
-    final AtomicInteger processedNodes = new AtomicInteger(0);
-
     AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException> bottomUpTraversal =
         new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(targetGraph) {
 
@@ -153,9 +167,6 @@ public class ActionGraphCache {
             } catch (NoSuchBuildTargetException e) {
               throw new HumanReadableException(e);
             }
-            eventBus.post(ActionGraphEvent.processed(
-                processedNodes.incrementAndGet(),
-                numberOfNodes));
           }
         };
     bottomUpTraversal.traverse();
@@ -166,14 +177,23 @@ public class ActionGraphCache {
         .build();
   }
 
+  private static HashCode getTargetGraphHash(TargetGraph targetGraph) {
+    Hasher hasher = Hashing.sha1().newHasher();
+    ImmutableSet<TargetNode<?, ?>> nodes = targetGraph.getNodes();
+    for (TargetNode<?, ?> targetNode : ImmutableSortedSet.copyOf(nodes)) {
+      hasher.putBytes(targetNode.getRawInputsHashCode().asBytes());
+    }
+    return hasher.hash();
+  }
+
   private static Map<BuildRule, RuleKey> getRuleKeysFromBuildRules(
       Iterable<BuildRule> buildRules,
       BuildRuleResolver buildRuleResolver,
-      int keySeed) {
+      RuleKeyFieldLoader fieldLoader) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     ContentAgnosticRuleKeyFactory factory =
-        new ContentAgnosticRuleKeyFactory(keySeed, pathResolver, ruleFinder);
+        new ContentAgnosticRuleKeyFactory(fieldLoader, pathResolver, ruleFinder);
 
     HashMap<BuildRule, RuleKey> ruleKeysMap = new HashMap<>();
     for (BuildRule rule : buildRules) {
@@ -195,7 +215,7 @@ public class ActionGraphCache {
       final BuckEventBus eventBus,
       final ActionGraphAndResolver lastActionGraphAndResolver,
       final TargetGraph targetGraph,
-      final int keySeed) {
+      final RuleKeyFieldLoader fieldLoader) {
     try (SimplePerfEvent.Scope scope = SimplePerfEvent.scope(
         eventBus,
         PerfEventId.of("ActionGraphCacheCheck"))) {
@@ -213,11 +233,11 @@ public class ActionGraphCache {
       Map<BuildRule, RuleKey> lastActionGraphRuleKeys = getRuleKeysFromBuildRules(
           lastActionGraphAndResolver.getActionGraph().getNodes(),
           lastActionGraphAndResolver.getResolver(),
-          keySeed);
+          fieldLoader);
       Map<BuildRule, RuleKey> newActionGraphRuleKeys = getRuleKeysFromBuildRules(
           newActionGraph.getSecond().getActionGraph().getNodes(),
           newActionGraph.getSecond().getResolver(),
-          keySeed);
+          fieldLoader);
 
       if (!lastActionGraphRuleKeys.equals(newActionGraphRuleKeys)) {
         invalidateCache();
@@ -259,6 +279,7 @@ public class ActionGraphCache {
 
   private void invalidateCache() {
     lastActionGraph = null;
+    lastTargetGraphHash = null;
   }
 
   @VisibleForTesting

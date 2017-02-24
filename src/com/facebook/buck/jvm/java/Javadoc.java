@@ -22,14 +22,13 @@ import com.facebook.buck.maven.AetherUtil;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -47,7 +46,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class Javadoc extends AbstractBuildRuleWithResolver implements MavenPublishable {
+public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
   public static final Flavor DOC_JAR = ImmutableFlavor.of("doc");
 
@@ -65,12 +64,11 @@ public class Javadoc extends AbstractBuildRuleWithResolver implements MavenPubli
 
   protected Javadoc(
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate,
       Iterable<HasMavenCoordinates> mavenDeps,
       ImmutableSet<SourcePath> sources) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
 
     this.mavenCoords = mavenCoords.map(coord -> AetherUtil.addClassifier(coord, "javadoc"));
     this.mavenPomTemplate = mavenPomTemplate;
@@ -96,7 +94,7 @@ public class Javadoc extends AbstractBuildRuleWithResolver implements MavenPubli
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
-    steps.add(new RmStep(getProjectFilesystem(), output, RmStep.Mode.FORCED));
+    steps.add(new RmStep(getProjectFilesystem(), output));
 
     // Fast path: nothing to do so just create an empty zip and return.
     if (sources.isEmpty()) {
@@ -194,7 +192,7 @@ public class Javadoc extends AbstractBuildRuleWithResolver implements MavenPubli
   }
 
   @Override
-  public Optional<Path> getPomTemplate() {
-    return mavenPomTemplate.map(getResolver()::getAbsolutePath);
+  public Optional<SourcePath> getPomTemplate() {
+    return mavenPomTemplate;
   }
 }

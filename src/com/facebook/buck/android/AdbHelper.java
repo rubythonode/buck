@@ -38,6 +38,7 @@ import com.facebook.buck.event.StartActivityEvent;
 import com.facebook.buck.event.UninstallEvent;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.rules.ExopackageInfo;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDeviceOptions;
@@ -563,24 +564,25 @@ public class AdbHelper {
    */
   @SuppressForbidden
   public boolean installApk(
-      final InstallableApk installableApk,
-      final boolean installViaSd,
-      final boolean quiet) throws InterruptedException {
-    Optional<ExopackageInfo> exopackageInfo = installableApk.getExopackageInfo();
+      SourcePathResolver pathResolver,
+      HasInstallableApk hasInstallableApk,
+      boolean installViaSd,
+      boolean quiet) throws InterruptedException {
+    Optional<ExopackageInfo> exopackageInfo = hasInstallableApk.getApkInfo().getExopackageInfo();
     if (exopackageInfo.isPresent()) {
       return new ExopackageInstaller(
+          pathResolver,
           context,
           this,
-          installableApk)
+          hasInstallableApk)
           .install(quiet);
     }
-    InstallEvent.Started started = InstallEvent.started(installableApk.getBuildTarget());
+    InstallEvent.Started started = InstallEvent.started(hasInstallableApk.getBuildTarget());
     if (!quiet) {
       getBuckEventBus().post(started);
     }
 
-    final File apk = installableApk.getProjectFilesystem().resolve(
-        installableApk.getApkPath()).toFile();
+    File apk = pathResolver.getAbsolutePath(hasInstallableApk.getApkInfo().getApkPath()).toFile();
     boolean success = adbCall(
         new AdbHelper.AdbCallable() {
           @Override
@@ -591,17 +593,20 @@ public class AdbHelper {
           @Override
           @SuppressForbidden
           public String toString() {
-            return String.format("install apk %s", installableApk.getBuildTarget().toString());
+            return String.format("install apk %s", hasInstallableApk.getBuildTarget().toString());
           }
         },
         quiet);
     if (!quiet) {
-      AdbHelper.tryToExtractPackageNameFromManifest(installableApk);
+      AdbHelper.tryToExtractPackageNameFromManifest(pathResolver, hasInstallableApk.getApkInfo());
       getBuckEventBus().post(InstallEvent.finished(
               started,
               success,
               Optional.empty(),
-              Optional.of(AdbHelper.tryToExtractPackageNameFromManifest(installableApk))));
+              Optional.of(
+                  AdbHelper.tryToExtractPackageNameFromManifest(
+                      pathResolver,
+                      hasInstallableApk.getApkInfo()))));
     }
 
     return success;
@@ -774,15 +779,16 @@ public class AdbHelper {
 
   @SuppressForbidden
   public int startActivity(
-      InstallableApk installableApk,
+      SourcePathResolver pathResolver,
+      HasInstallableApk hasInstallableApk,
       @Nullable String activity,
       boolean waitForDebugger) throws IOException, InterruptedException {
 
     // Might need the package name and activities from the AndroidManifest.
-    Path pathToManifest = installableApk.getProjectFilesystem().resolve(
-        installableApk.getManifestPath());
+    Path pathToManifest =
+        pathResolver.getAbsolutePath(hasInstallableApk.getApkInfo().getManifestPath());
     AndroidManifestReader reader = DefaultAndroidManifestReader.forPath(
-        pathToManifest, installableApk.getProjectFilesystem());
+        hasInstallableApk.getProjectFilesystem().resolve(pathToManifest));
 
     if (activity == null) {
       // Get list of activities that show up in the launcher.
@@ -810,7 +816,7 @@ public class AdbHelper {
     stdOut.println(String.format("Starting activity %s...", activityToRun));
 
     StartActivityEvent.Started started = StartActivityEvent.started(
-        installableApk.getBuildTarget(),
+        hasInstallableApk.getBuildTarget(),
         activityToRun);
     getBuckEventBus().post(started);
     boolean success = adbCall(
@@ -875,7 +881,7 @@ public class AdbHelper {
   /**
    * Uninstall apk from all matching devices.
    *
-   * @see #installApk(InstallableApk, boolean, boolean)
+   * @see #installApk(SourcePathResolver, HasInstallableApk, boolean, boolean)
    */
   public boolean uninstallApp(
       final String packageName,
@@ -983,9 +989,10 @@ public class AdbHelper {
     }
   }
 
-  public static String tryToExtractPackageNameFromManifest(InstallableApk androidBinaryRule) {
-    Path pathToManifest = androidBinaryRule.getProjectFilesystem().resolve(
-        androidBinaryRule.getManifestPath());
+  public static String tryToExtractPackageNameFromManifest(
+      SourcePathResolver pathResolver,
+      ApkInfo apkInfo) {
+    Path pathToManifest = pathResolver.getAbsolutePath(apkInfo.getManifestPath());
 
     // Note that the file may not exist if AndroidManifest.xml is a generated file
     // and the rule has not been built yet.
@@ -997,7 +1004,7 @@ public class AdbHelper {
 
     try {
       return DefaultAndroidManifestReader
-          .forPath(pathToManifest, androidBinaryRule.getProjectFilesystem())
+          .forPath(pathToManifest)
           .getPackage();
     } catch (IOException e) {
       throw new HumanReadableException("Could not extract package name from %s", pathToManifest);
@@ -1005,9 +1012,9 @@ public class AdbHelper {
   }
 
   public static String tryToExtractInstrumentationTestRunnerFromManifest(
-      InstallableApk androidBinaryRule) {
-    Path pathToManifest = androidBinaryRule.getProjectFilesystem().resolve(
-        androidBinaryRule.getManifestPath());
+      SourcePathResolver pathResolver,
+      ApkInfo apkInfo) {
+    Path pathToManifest = pathResolver.getAbsolutePath(apkInfo.getManifestPath());
 
     if (!Files.isRegularFile(pathToManifest)) {
       throw new HumanReadableException(
@@ -1017,7 +1024,7 @@ public class AdbHelper {
 
     try {
       return DefaultAndroidManifestReader
-          .forPath(pathToManifest, androidBinaryRule.getProjectFilesystem())
+          .forPath(pathToManifest)
           .getInstrumentationTestRunner();
     } catch (IOException e) {
       throw new HumanReadableException("Could not extract package name from %s", pathToManifest);

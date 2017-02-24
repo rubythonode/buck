@@ -62,9 +62,6 @@ public class ArtifactCaches implements ArtifactCacheFactory {
 
   private static final Logger LOG = Logger.get(ArtifactCaches.class);
 
-  private static final boolean FIX_HTTP_BOTTLENECK =
-      "true".equals(System.getProperty("buck.fix_http_bottleneck"));
-
   private final ArtifactCacheBuckConfig buckConfig;
   private final BuckEventBus buckEventBus;
   private final ProjectFilesystem projectFilesystem;
@@ -191,11 +188,7 @@ public class ArtifactCaches implements ArtifactCacheFactory {
     for (ArtifactCacheBuckConfig.ArtifactCacheMode mode : modes) {
       switch (mode) {
         case dir:
-          builder.add(
-              createDirArtifactCache(
-                  Optional.of(buckEventBus),
-                  buckConfig.getDirCache(),
-                  projectFilesystem));
+          initializeDirCaches(buckConfig, buckEventBus, projectFilesystem, builder);
           break;
         case http:
           initializeDistributedCaches(
@@ -242,6 +235,20 @@ public class ArtifactCaches implements ArtifactCacheFactory {
         buckConfig.getTwoLevelCachingMaximumSize());
 
     return result;
+  }
+
+  private static void initializeDirCaches(
+      ArtifactCacheBuckConfig buckConfig,
+      BuckEventBus buckEventBus,
+      ProjectFilesystem projectFilesystem,
+      ImmutableList.Builder<ArtifactCache> builder) {
+    for (DirCacheEntry cacheEntry : buckConfig.getDirCacheEntries()) {
+      builder.add(
+          createDirArtifactCache(
+              Optional.ofNullable(buckEventBus),
+              cacheEntry,
+              projectFilesystem));
+    }
   }
 
   private static void initializeDistributedCaches(
@@ -331,11 +338,9 @@ public class ArtifactCaches implements ArtifactCacheFactory {
 
     // The artifact cache effectively only connects to a single host at a time. We should allow as
     // many concurrent connections to that host as we allow threads.
-    if (FIX_HTTP_BOTTLENECK) {
-      Dispatcher dispatcher = new Dispatcher();
-      dispatcher.setMaxRequestsPerHost((int) config.getThreadPoolSize());
-      storeClientBuilder.dispatcher(dispatcher);
-    }
+    Dispatcher dispatcher = new Dispatcher();
+    dispatcher.setMaxRequestsPerHost((int) config.getThreadPoolSize());
+    storeClientBuilder.dispatcher(dispatcher);
 
     final ImmutableMap<String, String> readHeaders = cacheDescription.getReadHeaders();
     final ImmutableMap<String, String> writeHeaders = cacheDescription.getWriteHeaders();
@@ -417,12 +422,12 @@ public class ArtifactCaches implements ArtifactCacheFactory {
   }
 
   private static String stripNonAscii(String str) {
-    if (CharMatcher.ASCII.matchesAllOf(str)) {
+    if (CharMatcher.ascii().matchesAllOf(str)) {
       return str;
     }
     StringBuilder builder = new StringBuilder();
     for (char c : str.toCharArray()) {
-      builder.append(CharMatcher.ASCII.matches(c) ? c : '?');
+      builder.append(CharMatcher.ascii().matches(c) ? c : '?');
     }
     return builder.toString();
   }

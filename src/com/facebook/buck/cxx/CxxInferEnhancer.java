@@ -128,14 +128,12 @@ public final class CxxInferEnhancer {
                         .addAll(captureRules)
                         .build()),
                 params.getExtraDeps()),
-            new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)),
             captureRules));
   }
 
   public static CxxInferComputeReport requireInferAnalyzeAndReportBuildRuleForCxxDescriptionArg(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       CxxConstructorArg args,
@@ -155,7 +153,6 @@ public final class CxxInferEnhancer {
     CxxInferAnalyze analysisRule = requireInferAnalyzeBuildRuleForCxxDescriptionArg(
         cleanParams,
         resolver,
-        pathResolver,
         cxxBuckConfig,
         cxxPlatform,
         args,
@@ -164,7 +161,6 @@ public final class CxxInferEnhancer {
     return createInferReportRule(
         paramsWithInferFlavor,
         resolver,
-        pathResolver,
         analysisRule);
   }
 
@@ -212,7 +208,6 @@ public final class CxxInferEnhancer {
   public static CxxInferAnalyze requireInferAnalyzeBuildRuleForCxxDescriptionArg(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       CxxConstructorArg args,
@@ -246,7 +241,6 @@ public final class CxxInferEnhancer {
     return createInferAnalyzeRule(
         paramsWithInferAnalyzeFlavor,
         resolver,
-        pathResolver,
         inferConfig,
         cxxInferCaptureAndAnalyzeRules);
   }
@@ -476,7 +470,6 @@ public final class CxxInferEnhancer {
   private static CxxInferAnalyze createInferAnalyzeRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       InferBuckConfig inferConfig,
       CxxInferCaptureAndAggregatingRules<CxxInferAnalyze> captureAnalyzeRules) {
     return resolver.addToIndex(
@@ -489,7 +482,6 @@ public final class CxxInferEnhancer {
                         .addAll(captureAnalyzeRules.aggregatingRules)
                         .build()),
                 params.getExtraDeps()),
-            pathResolver,
             inferConfig,
             captureAnalyzeRules));
   }
@@ -509,7 +501,6 @@ public final class CxxInferEnhancer {
   private static CxxInferComputeReport createInferReportRule(
       BuildRuleParams buildRuleParams,
       BuildRuleResolver buildRuleResolver,
-      SourcePathResolver sourcePathResolver,
       CxxInferAnalyze analysisToReport) {
     return buildRuleResolver.addToIndex(
         new CxxInferComputeReport(
@@ -520,7 +511,6 @@ public final class CxxInferEnhancer {
                         .add(analysisToReport)
                         .build()),
                 buildRuleParams.getExtraDeps()),
-            sourcePathResolver,
             analysisToReport));
   }
 }

@@ -30,7 +30,6 @@ import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
@@ -110,7 +109,7 @@ public class IjProject {
           }
 
           @Override
-          public Optional<Path> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
+          public Optional<SourcePath> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
             BuildRule rule = buildRuleResolver.getRule(targetNode.getBuildTarget());
             if (!(rule instanceof JavaLibrary)) {
               return Optional.empty();
@@ -120,7 +119,7 @@ public class IjProject {
               return Optional.ofNullable(aarRule.getBinaryJar());
             }
             requiredBuildTargets.add(rule.getBuildTarget());
-            return Optional.ofNullable(rule.getPathToOutput());
+            return Optional.ofNullable(rule.getSourcePathToOutput());
           }
         });
     IjModuleFactoryResolver moduleFactoryResolver =
@@ -192,8 +191,8 @@ public class IjProject {
                 .buildAnnotationProcessingParams(
                     targetNode.getBuildTarget(),
                     projectFilesystem,
-                    buildRuleResolver
-                );
+                    buildRuleResolver,
+                    ImmutableSet.of());
             if (annotationProcessingParams == null || annotationProcessingParams.isEmpty()) {
               return Optional.empty();
             }
@@ -204,7 +203,7 @@ public class IjProject {
           private Path getRelativePathAndRecordRule(SourcePath sourcePath) {
             requiredBuildTargets.addAll(
                 OptionalCompat.asSet(ruleFinder.getRule(sourcePath)
-                    .map(HasBuildTarget::getBuildTarget)));
+                    .map(BuildRule::getBuildTarget)));
             return sourcePathResolver.getRelativePath(sourcePath);
           }
         };

@@ -20,8 +20,10 @@ import static org.hamcrest.MatcherAssert.assertThat;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
+import com.facebook.buck.log.PerfTimesStats;
 import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.BuildRule;
@@ -35,8 +37,11 @@ import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.autosparse.AutoSparseStateEvents;
+import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectWriter;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
 
 import org.junit.Before;
@@ -44,6 +49,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Random;
 
 public class MachineReadableLogJsonViewTest {
@@ -98,6 +104,26 @@ public class MachineReadableLogJsonViewTest {
   }
 
   @Test
+  public void testAutosparseEvents() throws Exception {
+    AutoSparseStateEvents.SparseRefreshStarted startEvent =
+        new AutoSparseStateEvents.SparseRefreshStarted();
+    AutoSparseStateEvents finishedEvent =
+        new AutoSparseStateEvents.SparseRefreshFinished(startEvent);
+    AutoSparseStateEvents failedEvent =
+        new AutoSparseStateEvents.SparseRefreshFailed(startEvent, "output string\n");
+
+    startEvent.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+    finishedEvent.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+    failedEvent.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+
+    assertJsonEquals("{%s}", WRITER.writeValueAsString(startEvent));
+    assertJsonEquals("{%s}", WRITER.writeValueAsString(finishedEvent));
+    assertJsonEquals(
+        "{%s,\"output\":\"output string\\n\"}",
+        WRITER.writeValueAsString(failedEvent));
+  }
+
+  @Test
   public void testBuildRuleEvent() throws IOException {
     BuildRule rule = FakeBuildRule.newEmptyInstance("//fake:rule");
     BuildRuleEvent.Finished event =
@@ -126,6 +152,40 @@ public class MachineReadableLogJsonViewTest {
             "\"ruleKeys\":{\"ruleKey\":{\"hashCode\":\"aaaa\"}," +
             "\"inputRuleKey\":{\"hashCode\":\"bbbb\"}}," +
             "\"outputHash\":\"abcd42\"},",
+        message);
+  }
+
+  @Test
+  public void testPerfTimesStatsEvent() throws IOException {
+    PerfTimesEventListener.PerfTimesEvent event =
+        new PerfTimesEventListener(
+            new BuckEventBus(
+                new DefaultClock(), buildId),
+            new DefaultExecutionEnvironment(ImmutableMap.of(), new Properties()))
+            .new PerfTimesEvent(
+            PerfTimesStats.builder()
+                .setPythonTimeMs(4L)
+                .setInitTimeMs(8L)
+                .setProcessingTimeMs(15L)
+                .setActionGraphTimeMs(16L)
+                .setBuildTimeMs(23L)
+                .setInstallTimeMs(42L)
+            .build());
+    event.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+
+    String message = WRITER.writeValueAsString(event);
+    assertJsonEquals(
+        "{%s," +
+            "\"perfTimesStats\":{" +
+            "\"pythonTimeMs\":4," +
+            "\"initTimeMs\":8," +
+            "\"parseTimeMs\":0," +
+            "\"processingTimeMs\":15," +
+            "\"actionGraphTimeMs\":16," +
+            "\"rulekeyTimeMs\":0," +
+            "\"fetchTimeMs\":0," +
+            "\"buildTimeMs\":23," +
+            "\"installTimeMs\":42}}",
         message);
   }
 

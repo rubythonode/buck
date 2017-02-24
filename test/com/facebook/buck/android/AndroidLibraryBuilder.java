@@ -23,13 +23,14 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class AndroidLibraryBuilder
-    extends AbstractNodeBuilder<AndroidLibraryDescription.Arg, AndroidLibraryDescription> {
+public class AndroidLibraryBuilder extends
+    AbstractNodeBuilder<AndroidLibraryDescription.Arg, AndroidLibraryDescription, AndroidLibrary> {
 
   private AndroidLibraryBuilder(BuildTarget target) {
     super(new AndroidLibraryDescription(ANDROID_JAVAC_OPTIONS, JAVA_ONLY_COMPILER_FACTORY), target);
@@ -61,7 +62,7 @@ public class AndroidLibraryBuilder
     return this;
   }
 
-  public AndroidLibraryBuilder setDepsQuery(String query) {
+  public AndroidLibraryBuilder setDepsQuery(Query query) {
     arg.depsQuery = Optional.of(query);
     return this;
   }

@@ -31,9 +31,9 @@ import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildResult;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.IndividualTestEvent;
 import com.facebook.buck.rules.SourcePath;
@@ -163,7 +163,7 @@ public class TestRunning {
 
     final ImmutableSet<String> testTargets =
         FluentIterable.from(tests)
-            .transform(HasBuildTarget::getBuildTarget)
+            .transform(BuildRule::getBuildTarget)
             .transform(Object::toString)
             .toSet();
 
@@ -223,6 +223,12 @@ public class TestRunning {
                 "Received begin status before end status (%s)",
                 previousEvent);
             params.getBuckEventBus().post(startedEvent);
+
+            String message = didBeginMessage.getMessage();
+            if (message.toLowerCase().contains("debugger")) {
+              executionContext.getStdErr().println(
+                  executionContext.getAnsi().asWarningText(message));
+            }
           }
 
           @Override
@@ -798,12 +804,15 @@ public class TestRunning {
       if (!sourceFolderPath.isEmpty()) {
         srcDirectories.addAll(sourceFolderPath);
       }
-      Path classesItem;
+      Path classesItem = null;
 
       if (useIntermediateClassesDir) {
         classesItem = DefaultJavaLibrary.getClassesDir(rule.getBuildTarget(), filesystem);
       } else {
-        classesItem = rule.getPathToOutput();
+        SourcePath path = rule.getSourcePathToOutput();
+        if (path != null) {
+          classesItem = sourcePathResolver.getRelativePath(path);
+        }
       }
       if (classesItem == null) {
         continue;

@@ -19,19 +19,20 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import javax.annotation.Nullable;
 
@@ -49,9 +50,8 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
   public static final AnnotationProcessingParams EMPTY = new AnnotationProcessingParams(
       /* owner target */ null,
       /* project filesystem */ null,
-      ImmutableSet.of(),
-      ImmutableSet.of(),
-      ImmutableSet.of(),
+      ImmutableList.of(),
+      ImmutableList.of(),
       ImmutableSortedSet.of(),
       false);
 
@@ -59,26 +59,23 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
   private final BuildTarget ownerTarget;
   @Nullable
   private final ProjectFilesystem filesystem;
-  private final ImmutableSortedSet<SourcePath> searchPathElements;
-  private final ImmutableSortedSet<String> names;
+  private final ImmutableList<ResolvedJavacPluginProperties> processors;
+  private final ImmutableList<JavacPluginProperties> legacyProcessors;
   private final ImmutableSortedSet<String> parameters;
-  private final ImmutableSortedSet<SourcePath> inputs;
   private final boolean processOnly;
 
   private AnnotationProcessingParams(
       @Nullable BuildTarget ownerTarget,
       @Nullable ProjectFilesystem filesystem,
-      Set<SourcePath> searchPathElements,
-      Set<String> names,
+      ImmutableList<ResolvedJavacPluginProperties> processors,
+      ImmutableList<JavacPluginProperties> legacyProcessors,
       Set<String> parameters,
-      ImmutableSortedSet<SourcePath> inputs,
       boolean processOnly) {
     this.ownerTarget = ownerTarget;
     this.filesystem = filesystem;
-    this.searchPathElements = ImmutableSortedSet.copyOf(searchPathElements);
-    this.names = ImmutableSortedSet.copyOf(names);
+    this.processors = processors;
+    this.legacyProcessors = legacyProcessors;
     this.parameters = ImmutableSortedSet.copyOf(parameters);
-    this.inputs = inputs;
     this.processOnly = processOnly;
 
     if (!isEmpty() && ownerTarget != null) {
@@ -94,15 +91,22 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
   }
 
   public boolean isEmpty() {
-    return searchPathElements.isEmpty() && names.isEmpty() && parameters.isEmpty();
+    return processors.isEmpty() && legacyProcessors.isEmpty() && parameters.isEmpty();
   }
 
-  public ImmutableSortedSet<SourcePath> getSearchPathElements() {
-    return searchPathElements;
-  }
+  public ImmutableList<ResolvedJavacPluginProperties> getAnnotationProcessors(
+      ProjectFilesystem filesystem,
+      SourcePathResolver resolver) {
+    if (legacyProcessors.isEmpty()) {
+      return processors;
+    }
 
-  public ImmutableSortedSet<String> getNames() {
-    return names;
+    return Stream
+        .concat(
+            legacyProcessors.stream()
+                .map(processorGroup -> processorGroup.resolve(filesystem, resolver)),
+            processors.stream())
+        .collect(MoreCollectors.toImmutableList());
   }
 
   public ImmutableSortedSet<String> getParameters() {
@@ -110,18 +114,22 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
   }
 
   public ImmutableSortedSet<SourcePath> getInputs() {
-    return inputs;
+    return Stream
+        .concat(
+            legacyProcessors.stream().map(JavacPluginProperties::getInputs),
+            processors.stream().map(ResolvedJavacPluginProperties::getInputs))
+        .flatMap(Collection::stream)
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
     if (!isEmpty()) {
-      // searchPathElements is not needed here since it comes from rules, which is appended below.
       sink.setReflectively("owner", ownerTarget)
-          .setReflectively("names", names)
+          .setReflectively("legacyProcessors", legacyProcessors)
+          .setReflectively("processors", processors)
           .setReflectively("parameters", parameters)
-          .setReflectively("processOnly", processOnly)
-          .setReflectively("inputs", inputs);
+          .setReflectively("processOnly", processOnly);
     }
   }
 
@@ -138,13 +146,33 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
     }
   }
 
+  public AnnotationProcessingParams withoutProcessOnly() {
+    if (processOnly) {
+      return new AnnotationProcessingParams(
+          ownerTarget,
+          filesystem,
+          processors,
+          legacyProcessors,
+          parameters,
+          false);
+    } else {
+      return this;
+    }
+  }
+
   public static class Builder {
     @Nullable
     private BuildTarget ownerTarget;
     @Nullable
     private ProjectFilesystem filesystem;
-    private Set<BuildRule> rules = Sets.newHashSet();
-    private Set<String> names = Sets.newHashSet();
+    @Nullable
+    private Set<String> safeAnnotationProcessors;
+    private ImmutableList.Builder<ResolvedJavacPluginProperties> processorsBuilder =
+        ImmutableList.builder();
+    private JavacPluginProperties.Builder legacySafeProcessorsBuilder =
+        JavacPluginProperties.builder().setCanReuseClassLoader(true);
+    private JavacPluginProperties.Builder legacyUnsafeProcessorsBuilder =
+        JavacPluginProperties.builder().setCanReuseClassLoader(false);
     private Set<String> parameters = Sets.newHashSet();
     private boolean processOnly;
 
@@ -153,13 +181,30 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
       return this;
     }
 
-    public Builder addProcessorBuildTarget(BuildRule rule) {
-      rules.add(rule);
+    public Builder setSafeAnnotationProcessors(Set<String> safeAnnotationProcessors) {
+      this.safeAnnotationProcessors = safeAnnotationProcessors;
       return this;
     }
 
-    public Builder addAllProcessors(Collection<? extends String> processorNames) {
-      names.addAll(processorNames);
+    public Builder addProcessorBuildTarget(BuildRule rule) {
+      legacySafeProcessorsBuilder.addDep(rule);
+      legacyUnsafeProcessorsBuilder.addDep(rule);
+      return this;
+    }
+
+    public Builder addProcessor(ResolvedJavacPluginProperties processor) {
+      processorsBuilder.add(processor);
+      return this;
+    }
+
+    public Builder addAllProcessors(Collection<String> processorNames) {
+      for (String name : processorNames) {
+        if (Preconditions.checkNotNull(safeAnnotationProcessors).contains(name)) {
+          legacySafeProcessorsBuilder.addProcessorNames(name);
+        } else {
+          legacyUnsafeProcessorsBuilder.addProcessorNames(name);
+        }
+      }
       return this;
     }
 
@@ -179,49 +224,31 @@ public class AnnotationProcessingParams implements RuleKeyAppendable {
     }
 
     public AnnotationProcessingParams build() {
-      if (names.isEmpty() && rules.isEmpty() && parameters.isEmpty()) {
+      JavacPluginProperties legacySafeProcessors = legacySafeProcessorsBuilder.build();
+      JavacPluginProperties legacyUnsafeProcessors = legacyUnsafeProcessorsBuilder.build();
+      ImmutableList<ResolvedJavacPluginProperties> processors = processorsBuilder.build();
+      if (processors.isEmpty() &&
+          legacySafeProcessors.isEmpty() &&
+          legacyUnsafeProcessors.isEmpty() &&
+          parameters.isEmpty()) {
         return EMPTY;
       }
 
-      ImmutableSortedSet.Builder<SourcePath> inputs = ImmutableSortedSet.naturalOrder();
-      Set<SourcePath> searchPathElements = Sets.newHashSet();
-
-      for (BuildRule rule : this.rules) {
-        if (rule.getClass().isAnnotationPresent(BuildsAnnotationProcessor.class)) {
-          Path pathToOutput = rule.getPathToOutput();
-          if (pathToOutput != null) {
-            BuildTargetSourcePath outputSourcePath =
-                new BuildTargetSourcePath(rule.getBuildTarget());
-            inputs.add(outputSourcePath);
-            searchPathElements.add(outputSourcePath);
-          }
-        } else if (rule instanceof HasClasspathEntries) {
-          HasClasspathEntries hasClasspathEntries = (HasClasspathEntries) rule;
-          ImmutableSet<JavaLibrary> entries = hasClasspathEntries.getTransitiveClasspathDeps();
-          for (JavaLibrary entry : entries) {
-            // Libraries may merely re-export other libraries' class paths, instead of having one
-            // itself. In such cases do not add the library itself, and just move on.
-            if (entry.getPathToOutput() != null) {
-              inputs.add(new BuildTargetSourcePath(entry.getBuildTarget()));
-            }
-          }
-          searchPathElements.addAll(hasClasspathEntries.getTransitiveClasspaths());
-        } else {
-          throw new HumanReadableException(
-              "%1$s: Error adding '%2$s' to annotation_processing_deps: " +
-              "must refer only to prebuilt jar, java binary, or java library targets.",
-              ownerTarget,
-              rule.getFullyQualifiedName());
-        }
+      ImmutableList.Builder<JavacPluginProperties> legacyProcessorsBuilder =
+          ImmutableList.builder();
+      if (!legacySafeProcessors.isEmpty()) {
+        legacyProcessorsBuilder.add(legacySafeProcessors);
+      }
+      if (!legacyUnsafeProcessors.isEmpty()) {
+        legacyProcessorsBuilder.add(legacyUnsafeProcessors);
       }
 
       return new AnnotationProcessingParams(
           ownerTarget,
           filesystem,
-          searchPathElements,
-          names,
+          processors,
+          legacyProcessorsBuilder.build(),
           parameters,
-          inputs.build(),
           processOnly);
     }
   }

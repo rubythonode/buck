@@ -28,16 +28,17 @@ import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
@@ -63,7 +64,7 @@ public class HaskellLibraryDescriptionTest {
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(builder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
-    HaskellLibrary library = (HaskellLibrary) builder.build(resolver);
+    HaskellLibrary library = builder.build(resolver);
     library.getCompileInput(
         CxxPlatformUtils.DEFAULT_PLATFORM,
         Linker.LinkableDepType.STATIC);
@@ -103,11 +104,13 @@ public class HaskellLibraryDescriptionTest {
                 HaskellLibraryDescription.Type.SHARED.getFlavor()))
             .build(resolver);
 
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     ImmutableList<Path> outputs =
         ImmutableList.of(
-            Preconditions.checkNotNull(staticLib.getPathToOutput()),
-            Preconditions.checkNotNull(staticPicLib.getPathToOutput()),
-            Preconditions.checkNotNull(sharedLib.getPathToOutput()));
+            Preconditions.checkNotNull(staticLib.getSourcePathToOutput()),
+            Preconditions.checkNotNull(staticPicLib.getSourcePathToOutput()),
+            Preconditions.checkNotNull(sharedLib.getSourcePathToOutput()))
+        .stream().map(pathResolver::getRelativePath).collect(MoreCollectors.toImmutableList());
     assertThat(outputs.size(), Matchers.equalTo(ImmutableSet.copyOf(outputs).size()));
 
     ImmutableList<BuildTarget> targets =
@@ -128,7 +131,7 @@ public class HaskellLibraryDescriptionTest {
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(builder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
-    HaskellLibrary library = (HaskellLibrary) builder.build(resolver);
+    HaskellLibrary library = builder.build(resolver);
 
     // Lookup the link whole flags.
     Linker linker = CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(resolver);
@@ -175,7 +178,7 @@ public class HaskellLibraryDescriptionTest {
 
     // Test default value.
     HaskellLibrary defaultLib =
-        (HaskellLibrary) new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:default"))
+        new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:default"))
             .build(resolver);
     assertThat(
         defaultLib.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
@@ -183,7 +186,7 @@ public class HaskellLibraryDescriptionTest {
 
     // Test `ANY` value.
     HaskellLibrary anyLib =
-        (HaskellLibrary) new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:any"))
+        new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:any"))
             .setPreferredLinkage(NativeLinkable.Linkage.ANY)
             .build(resolver);
     assertThat(
@@ -192,7 +195,7 @@ public class HaskellLibraryDescriptionTest {
 
     // Test `STATIC` value.
     HaskellLibrary staticLib =
-        (HaskellLibrary) new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:static"))
+        new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:static"))
             .setPreferredLinkage(NativeLinkable.Linkage.STATIC)
             .build(resolver);
     assertThat(
@@ -201,7 +204,7 @@ public class HaskellLibraryDescriptionTest {
 
     // Test `SHARED` value.
     HaskellLibrary sharedLib =
-        (HaskellLibrary) new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:shared"))
+        new HaskellLibraryBuilder(BuildTargetFactory.newInstance("//:shared"))
             .setPreferredLinkage(NativeLinkable.Linkage.SHARED)
             .build(resolver);
     assertThat(
@@ -229,7 +232,7 @@ public class HaskellLibraryDescriptionTest {
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(builder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
-    HaskellLibrary library = (HaskellLibrary) builder.build(resolver);
+    HaskellLibrary library = builder.build(resolver);
 
     // Test static dep type.
     NativeLinkableInput staticInput =
@@ -239,7 +242,7 @@ public class HaskellLibraryDescriptionTest {
     assertThat(
         FluentIterable.from(staticInput.getArgs())
             .transformAndConcat(arg -> arg.getDeps(new SourcePathRuleFinder(resolver)))
-            .transform(HasBuildTarget::getBuildTarget)
+            .transform(BuildRule::getBuildTarget)
             .toList(),
         Matchers.hasItem(
             HaskellDescriptionUtils.getCompileBuildTarget(

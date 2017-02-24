@@ -41,7 +41,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -569,10 +568,9 @@ public class AppleDescriptions {
                     .addAll(unstrippedBinaryBuildRule.getStaticLibraryDeps())
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         appleCxxPlatform.getDsymutil(),
         appleCxxPlatform.getLldb(),
-        new BuildTargetSourcePath(unstrippedBinaryBuildRule.getBuildTarget()),
+        unstrippedBinaryBuildRule.getSourcePathToOutput(),
         AppleDsym.getDsymOutputPath(params.getBuildTarget(), params.getProjectFilesystem()));
     resolver.addToIndex(appleDsym);
     return appleDsym;
@@ -649,6 +647,7 @@ public class AppleDescriptions {
             sourcePathResolver,
             appleCxxPlatform.getAppleSdk().getApplePlatform(),
             appleCxxPlatform.getActool());
+    addToIndex(resolver, assetCatalog);
 
     Optional<CoreDataModel> coreDataModel =
         createBuildRulesForCoreDataDependencies(
@@ -656,12 +655,14 @@ public class AppleDescriptions {
             paramsWithoutBundleSpecificFlavors,
             AppleBundle.getBinaryName(params.getBuildTarget(), productName),
             appleCxxPlatform);
+    addToIndex(resolver, coreDataModel);
 
     Optional<SceneKitAssets> sceneKitAssets =
         createBuildRulesForSceneKitAssetsDependencies(
             targetGraph,
             paramsWithoutBundleSpecificFlavors,
             appleCxxPlatform);
+    addToIndex(resolver, sceneKitAssets);
 
     // TODO(bhamiltoncx): Sort through the changes needed to make project generation work with
     // binary being optional.
@@ -767,6 +768,12 @@ public class AppleDescriptions {
         provisioningProfileStore,
         dryRunCodeSigning,
         cacheable);
+  }
+
+  private static void addToIndex(BuildRuleResolver resolver, Optional<? extends BuildRule> rule) {
+    if (rule.isPresent()) {
+      resolver.addToIndex(rule.get());
+    }
   }
 
   private static BuildRule getBinaryFromBuildRuleWithBinary(BuildRule rule) {
@@ -877,13 +884,10 @@ public class AppleDescriptions {
     for (BuildRule rule : deps) {
       if (rule instanceof AppleBundle) {
         AppleBundle appleBundle = (AppleBundle) rule;
-        Path outputPath = Preconditions.checkNotNull(
-            appleBundle.getPathToOutput(),
+        SourcePath sourcePath = Preconditions.checkNotNull(
+            appleBundle.getSourcePathToOutput(),
             "Path cannot be null for AppleBundle [%s].",
             appleBundle);
-        SourcePath sourcePath = new BuildTargetSourcePath(
-            appleBundle.getBuildTarget(),
-            outputPath);
 
         if (AppleBundleExtension.APPEX.toFileExtension().equals(appleBundle.getExtension()) ||
             AppleBundleExtension.APP.toFileExtension().equals(appleBundle.getExtension())) {

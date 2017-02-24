@@ -20,12 +20,14 @@ import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -36,8 +38,9 @@ import java.util.Optional;
 public abstract class AbstractAppleNativeTargetBuilder<
     ARG extends AppleNativeTargetDescriptionArg,
     DESCRIPTION extends Description<ARG>,
-    BUILDER extends AbstractAppleNativeTargetBuilder<ARG, DESCRIPTION, BUILDER>>
-    extends AbstractNodeBuilder<ARG, DESCRIPTION> {
+    BUILDRULE extends BuildRule,
+    BUILDER extends AbstractAppleNativeTargetBuilder<ARG, DESCRIPTION, BUILDRULE, BUILDER>>
+    extends AbstractNodeBuilder<ARG, DESCRIPTION, BUILDRULE> {
 
   public AbstractAppleNativeTargetBuilder(
       DESCRIPTION description,
@@ -78,12 +81,12 @@ public abstract class AbstractAppleNativeTargetBuilder<
     return getThis();
   }
 
-  public BUILDER setLinkerFlags(ImmutableList<String> linkerFlags) {
+  public BUILDER setLinkerFlags(ImmutableList<StringWithMacros> linkerFlags) {
     arg.linkerFlags = linkerFlags;
     return getThis();
   }
 
-  public BUILDER setExportedLinkerFlags(ImmutableList<String> exportedLinkerFlags) {
+  public BUILDER setExportedLinkerFlags(ImmutableList<StringWithMacros> exportedLinkerFlags) {
     arg.exportedLinkerFlags = exportedLinkerFlags;
     return getThis();
   }

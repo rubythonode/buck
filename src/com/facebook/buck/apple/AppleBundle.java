@@ -33,7 +33,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -41,7 +40,6 @@ import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.HasRuntimeDeps;
@@ -133,7 +131,7 @@ public class AppleBundle
   private final ImmutableSortedSet<BuildTarget> tests;
 
   @AddToRuleKey
-  private final String platformName;
+  private final ApplePlatform platform;
 
   @AddToRuleKey
   private final String sdkName;
@@ -224,7 +222,7 @@ public class AppleBundle
         .resolve(this.binaryName);
     this.tests = ImmutableSortedSet.copyOf(tests);
     AppleSdk sdk = appleCxxPlatform.getAppleSdk();
-    this.platformName = sdk.getApplePlatform().getName();
+    this.platform = sdk.getApplePlatform();
     this.sdkName = sdk.getName();
     this.sdkVersion = sdk.getVersion();
     this.minOSVersion = appleCxxPlatform.getMinVersion();
@@ -235,7 +233,7 @@ public class AppleBundle
     this.cacheable = cacheable;
 
     bundleBinaryPath = bundleRoot.resolve(binaryPath);
-    hasBinary = binary.isPresent() && binary.get().getPathToOutput() != null;
+    hasBinary = binary.isPresent() && binary.get().getSourcePathToOutput() != null;
 
     if (needCodeSign() && !adHocCodeSignIsSufficient()) {
       this.provisioningProfileStore = provisioningProfileStore;
@@ -291,7 +289,7 @@ public class AppleBundle
   }
 
   public String getPlatformName() {
-    return platformName;
+    return platform.getName();
   }
 
   public Optional<BuildRule> getBinary() {
@@ -341,7 +339,8 @@ public class AppleBundle
       stepsBuilder.add(
           CopyStep.forDirectory(
               getProjectFilesystem(),
-              sceneKitAssets.get().getPathToOutput(),
+              context.getSourcePathResolver().getRelativePath(
+                  sceneKitAssets.get().getSourcePathToOutput()),
               resourcesDestinationPath,
               CopyStep.DirectoryMode.CONTENTS_ONLY));
     }
@@ -386,8 +385,8 @@ public class AppleBundle
             PlistProcessStep.OutputFormat.BINARY));
 
     if (hasBinary) {
-      appendCopyBinarySteps(stepsBuilder);
-      appendCopyDsymStep(stepsBuilder, buildableContext);
+      appendCopyBinarySteps(stepsBuilder, context.getSourcePathResolver());
+      appendCopyDsymStep(stepsBuilder, buildableContext, context.getSourcePathResolver());
     }
 
     if (
@@ -478,7 +477,7 @@ public class AppleBundle
         Optional<String> entitlementsPlistString =
             InfoPlistSubstitution.getVariableExpansionForPlatform(
                 CODE_SIGN_ENTITLEMENTS,
-                platformName,
+                platform.getName(),
                 withDefaults(
                     infoPlistSubstitutions,
                     ImmutableMap.of(
@@ -499,6 +498,7 @@ public class AppleBundle
             new ProvisioningProfileCopyStep(
                 getProjectFilesystem(),
                 infoPlistOutputPath,
+                platform,
                 Optional.empty(),  // Provisioning profile UUID -- find automatically.
                 entitlementsPlist,
                 provisioningProfileStore,
@@ -596,16 +596,19 @@ public class AppleBundle
     }
 
     // Ensure the bundle directory is archived so we can fetch it later.
-    buildableContext.recordArtifact(getPathToOutput());
+    buildableContext.recordArtifact(
+        context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
     return stepsBuilder.build();
   }
 
-  private void appendCopyBinarySteps(ImmutableList.Builder<Step> stepsBuilder) {
+  private void appendCopyBinarySteps(
+      ImmutableList.Builder<Step> stepsBuilder,
+      SourcePathResolver pathResolver) {
     Preconditions.checkArgument(hasBinary);
 
-    final Path binaryOutputPath = binary.get().getPathToOutput();
-    Preconditions.checkNotNull(binaryOutputPath);
+    final Path binaryOutputPath = pathResolver.getRelativePath(
+        Preconditions.checkNotNull(binary.get().getSourcePathToOutput()));
 
     copyBinaryIntoBundle(stepsBuilder, binaryOutputPath);
     copyAnotherCopyOfWatchKitStub(stepsBuilder, binaryOutputPath);
@@ -629,7 +632,7 @@ public class AppleBundle
       ImmutableList.Builder<Step> stepsBuilder,
       Path binaryOutputPath) {
     if ((isLegacyWatchApp() ||
-        (platformName.contains("watch") &&
+        (platform.getName().contains("watch") &&
             minOSVersion.equals("2.0"))) &&
         binary.get() instanceof WriteFile) {
       final Path watchKitStubDir = bundleRoot.resolve("_WatchKitStub");
@@ -644,32 +647,33 @@ public class AppleBundle
 
   private void appendCopyDsymStep(
       ImmutableList.Builder<Step> stepsBuilder,
-      BuildableContext buildableContext) {
+      BuildableContext buildableContext,
+      SourcePathResolver pathResolver) {
     if (appleDsym.isPresent()) {
       stepsBuilder.add(
           CopyStep.forDirectory(
               getProjectFilesystem(),
-              appleDsym.get().getPathToOutput(),
+              pathResolver.getRelativePath(appleDsym.get().getSourcePathToOutput()),
               bundleRoot.getParent(),
               CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
-      appendDsymRenameStepToMatchBundleName(stepsBuilder, buildableContext);
+      appendDsymRenameStepToMatchBundleName(stepsBuilder, buildableContext, pathResolver);
     }
   }
 
   private void appendDsymRenameStepToMatchBundleName(
       ImmutableList.Builder<Step> stepsBuilder,
-      BuildableContext buildableContext) {
+      BuildableContext buildableContext,
+      SourcePathResolver pathResolver) {
     Preconditions.checkArgument(hasBinary && appleDsym.isPresent());
 
     // rename dSYM bundle to match bundle name
-    Path dsymPath = appleDsym.get().getPathToOutput();
+    Path dsymPath = pathResolver.getRelativePath(appleDsym.get().getSourcePathToOutput());
     Path dsymSourcePath = bundleRoot.getParent().resolve(dsymPath.getFileName());
     Path dsymDestinationPath = bundleRoot.getParent().resolve(
         bundleRoot.getFileName() + "." + AppleBundleExtension.DSYM.toFileExtension());
     stepsBuilder.add(new RmStep(
         getProjectFilesystem(),
         dsymDestinationPath,
-        RmStep.Mode.FORCED,
         RmStep.Mode.RECURSIVE));
     stepsBuilder.add(new MoveStep(getProjectFilesystem(), dsymSourcePath, dsymDestinationPath));
 
@@ -722,9 +726,9 @@ public class AppleBundle
   private ImmutableMap<String, NSObject> getInfoPlistOverrideKeys() {
     ImmutableMap.Builder<String, NSObject> keys = ImmutableMap.builder();
 
-    if (platformName.contains("osx")) {
+    if (platform.getName().contains("osx")) {
       keys.put("LSRequiresIPhoneOS", new NSNumber(false));
-    } else if (!platformName.contains("watch") && !isLegacyWatchApp()) {
+    } else if (!platform.getName().contains("watch") && !isLegacyWatchApp()) {
       keys.put("LSRequiresIPhoneOS", new NSNumber(true));
     }
 
@@ -733,6 +737,7 @@ public class AppleBundle
 
   private ImmutableMap<String, NSObject> getInfoPlistAdditionalKeys() {
     ImmutableMap.Builder<String, NSObject> keys = ImmutableMap.builder();
+    final String platformName = platform.getName();
 
     if (platformName.contains("osx")) {
       keys.put("NSHighResolutionCapable", new NSNumber(true));
@@ -807,7 +812,7 @@ public class AppleBundle
       Path sourcePath,
       Path destinationPath,
       ImmutableList.Builder<Step> stepsBuilder) {
-    if (platformName.contains("watch") || isLegacyWatchApp()) {
+    if (platform.getName().contains("watch") || isLegacyWatchApp()) {
       LOG.debug("Compiling storyboard %s to storyboardc %s and linking",
           sourcePath,
           destinationPath);
@@ -927,12 +932,12 @@ public class AppleBundle
   }
 
   private boolean adHocCodeSignIsSufficient() {
-    return ApplePlatform.adHocCodeSignIsSufficient(platformName);
+    return ApplePlatform.adHocCodeSignIsSufficient(platform.getName());
   }
 
   // .framework bundles will be code-signed when they're copied into the containing bundle.
   private boolean needCodeSign() {
-    return binary.isPresent() && ApplePlatform.needsCodeSign(platformName) &&
+    return binary.isPresent() && ApplePlatform.needsCodeSign(platform.getName()) &&
         !extension.equals(FRAMEWORK_EXTENSION);
   }
 
@@ -942,15 +947,14 @@ public class AppleBundle
   }
 
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     if (binary.get() instanceof ProvidesLinkedBinaryDeps) {
       List<BuildRule> linkDeps = new ArrayList<>();
       linkDeps.addAll(((ProvidesLinkedBinaryDeps) binary.get()).getCompileDeps());
       linkDeps.addAll(((ProvidesLinkedBinaryDeps) binary.get()).getStaticLibraryDeps());
       if (linkDeps.size() > 0) {
         return Stream.concat(Stream.of(binary.get()), linkDeps.stream())
-            .map(HasBuildTarget::getBuildTarget)
-            .map(BuildTargetSourcePath::new);
+            .map(BuildRule::getBuildTarget);
       }
     }
     return Stream.empty();

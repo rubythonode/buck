@@ -32,7 +32,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.Hasher;
@@ -42,6 +41,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * Helper class for handling preprocessing related tasks of a cxx compilation rule.
@@ -51,6 +51,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
   // Fields that are added to rule key as is.
   private final Preprocessor preprocessor;
   private final RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction;
+  private final HeaderVerification headerVerification;
 
   // Fields that added to the rule key with some processing.
   private final PreprocessorFlags preprocessorFlags;
@@ -59,7 +60,6 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
   private final DebugPathSanitizer sanitizer;
   private final Path workingDir;
   private final SourcePathResolver resolver;
-  private final HeaderVerification headerVerification;
   private final Optional<SymlinkTree> sandbox;
 
   /**
@@ -77,9 +77,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
             @Override
             public HeaderPathNormalizer get() {
               HeaderPathNormalizer.Builder builder =
-                  new HeaderPathNormalizer.Builder(
-                      resolver,
-                      minLengthPathRepresentation);
+                  new HeaderPathNormalizer.Builder(resolver);
               for (CxxHeaders include : preprocessorFlags.getIncludes()) {
                 include.addToHeaderPathNormalizer(builder);
               }
@@ -279,9 +277,9 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
     return inputs.build();
   }
 
-  public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
+  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
     // TODO(jkeljo): I didn't know how to implement this, and didn't have time to figure it out.
-    return Optional.empty();
+    return (SourcePath path) -> true;
   }
 
   public Optional<ImmutableList<String>> getFlagsForColorDiagnostics() {

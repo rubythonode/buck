@@ -176,7 +176,7 @@ abstract class AbstractCxxSourceRuleFactory {
           target,
           Suppliers.ofInstance(getPreprocessDeps()),
           Suppliers.ofInstance(ImmutableSortedSet.of()));
-      DependencyAggregation rule = new DependencyAggregation(params, getPathResolver());
+      DependencyAggregation rule = new DependencyAggregation(params);
       getResolver().addToIndex(rule);
       return rule;
     }
@@ -328,7 +328,6 @@ abstract class AbstractCxxSourceRuleFactory {
             target,
             Suppliers.ofInstance(depsBuilder.build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        getPathResolver(),
         compilerDelegate,
         getCompileOutputPath(target, name),
         source.getPath(),
@@ -437,7 +436,6 @@ abstract class AbstractCxxSourceRuleFactory {
             target,
             Suppliers.ofInstance(depsBuilder.build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        getPathResolver(),
         ppFlags,
         cFlags,
         source.getPath(),
@@ -496,14 +494,12 @@ abstract class AbstractCxxSourceRuleFactory {
           "and/or 'cxx.pch_enabled' option).");
     }
 
-    Optional<PrecompiledHeaderReference> precompiledHeaderReference = Optional.empty();
+    Optional<CxxPrecompiledHeader> precompiledHeaderRule = Optional.empty();
     if (canUsePrecompiledHeaders(getCxxBuckConfig(), preprocessor, source.getType()) &&
         (getPrefixHeader().isPresent() || getPrecompiledHeader().isPresent())) {
-      CxxPrecompiledHeader precompiledHeader =
-          requirePrecompiledHeaderBuildRule(preprocessorDelegateValue, source);
-      depsBuilder.add(precompiledHeader);
-      precompiledHeaderReference =
-          Optional.of(PrecompiledHeaderReference.of(precompiledHeader));
+      precompiledHeaderRule = Optional.of(
+          requirePrecompiledHeaderBuildRule(preprocessorDelegateValue, source));
+      depsBuilder.add(precompiledHeaderRule.get());
       if (getPrecompiledHeader().isPresent()) {
         // For a precompiled header (and not a prefix header), we may need extra include paths.
         // The PCH build might have involved some deps that this rule does not have, so we
@@ -511,7 +507,7 @@ abstract class AbstractCxxSourceRuleFactory {
         // build play out the same way as they did for the PCH.
         try {
           preprocessorDelegate = preprocessorDelegate.withLeadingIncludePaths(
-              precompiledHeader.getCxxIncludePaths());
+              precompiledHeaderRule.get().getCxxIncludePaths());
         } catch (PreprocessorDelegate.ConflictingHeadersException e) {
           throw e.getHumanReadableExceptionForBuildTarget(getParams().getBuildTarget());
         }
@@ -524,13 +520,12 @@ abstract class AbstractCxxSourceRuleFactory {
             target,
             Suppliers.ofInstance(depsBuilder.build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        getPathResolver(),
         preprocessorDelegate,
         compilerDelegate,
         getCompileOutputPath(target, name),
         source.getPath(),
         source.getType(),
-        precompiledHeaderReference,
+        precompiledHeaderRule,
         getCxxPlatform().getCompilerDebugPathSanitizer(),
         getCxxPlatform().getAssemblerDebugPathSanitizer(),
         getSandboxTree());
@@ -740,7 +735,6 @@ abstract class AbstractCxxSourceRuleFactory {
 
     CxxPrecompiledHeader rule = new CxxPrecompiledHeader(
         params,
-        getPathResolver(),
         output,
         preprocessorDelegate,
         compilerDelegate,
@@ -809,7 +803,7 @@ abstract class AbstractCxxSourceRuleFactory {
         })
         .collect(MoreCollectors.toImmutableMap(
             Function.identity(),
-            input -> new BuildTargetSourcePath(input.getBuildTarget())));
+            CxxPreprocessAndCompile::getSourcePathToOutput));
   }
 
   private CxxSource getSandboxedCxxSource(CxxSource source) {

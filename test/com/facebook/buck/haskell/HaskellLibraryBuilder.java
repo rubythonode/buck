@@ -25,11 +25,14 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Optional;
 
-public class HaskellLibraryBuilder
-    extends AbstractNodeBuilder<HaskellLibraryDescription.Arg, HaskellLibraryDescription> {
+public class HaskellLibraryBuilder extends AbstractNodeBuilder<
+    HaskellLibraryDescription.Arg,
+    HaskellLibraryDescription,
+    HaskellLibrary> {
 
   public HaskellLibraryBuilder(
       BuildTarget target,
@@ -66,6 +69,11 @@ public class HaskellLibraryBuilder
 
   public HaskellLibraryBuilder setPreferredLinkage(NativeLinkable.Linkage preferredLinkage) {
     arg.preferredLinkage = Optional.of(preferredLinkage);
+    return this;
+  }
+
+  public HaskellLibraryBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
+    arg.deps = deps;
     return this;
   }
 

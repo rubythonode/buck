@@ -31,7 +31,6 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.PathSourcePath;
@@ -102,10 +101,11 @@ public class AndroidResourceDescription
       BuildRuleParams params,
       final BuildRuleResolver resolver,
       A args) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     if (params.getBuildTarget().getFlavors().contains(RESOURCES_SYMLINK_TREE_FLAVOR)) {
-      return createSymlinkTree(params, args.res, "res");
+      return createSymlinkTree(ruleFinder, params, args.res, "res");
     } else if (params.getBuildTarget().getFlavors().contains(ASSETS_SYMLINK_TREE_FLAVOR)) {
-      return createSymlinkTree(params, args.assets, "assets");
+      return createSymlinkTree(ruleFinder, params, args.assets, "assets");
     }
 
     // Only allow android resource and library rules as dependencies.
@@ -136,8 +136,6 @@ public class AndroidResourceDescription
             ASSETS_SYMLINK_TREE_FLAVOR,
             args.assets);
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-
     params = params.appendExtraDeps(
         Iterables.concat(
             resInputs.getSecond().map(ruleFinder::filterBuildRuleInputs)
@@ -167,6 +165,7 @@ public class AndroidResourceDescription
   }
 
   private SymlinkTree createSymlinkTree(
+      SourcePathRuleFinder ruleFinder,
       BuildRuleParams params,
       Optional<Either<SourcePath, ImmutableSortedMap<String, SourcePath>>> symlinkAttribute,
       String outputDirName) {
@@ -198,7 +197,7 @@ public class AndroidResourceDescription
     params = params.copyWithDeps(
         Suppliers.ofInstance(ImmutableSortedSet.of()),
         Suppliers.ofInstance(ImmutableSortedSet.of()));
-    return new SymlinkTree(params, symlinkTreeRoot, links);
+    return new SymlinkTree(params, symlinkTreeRoot, links, ruleFinder);
   }
 
   public static Optional<SourcePath> getResDirectoryForProject(
@@ -282,8 +281,7 @@ public class AndroidResourceDescription
     } catch (NoSuchBuildTargetException e) {
       throw new RuntimeException(e);
     }
-    SourcePath sourcePath = new BuildTargetSourcePath(symlinkTreeTarget);
-    return new Pair<>(Optional.of(symlinkTree), Optional.of(sourcePath));
+    return new Pair<>(Optional.of(symlinkTree), Optional.of(symlinkTree.getSourcePathToOutput()));
   }
 
   @VisibleForTesting

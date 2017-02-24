@@ -23,14 +23,12 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -172,7 +170,7 @@ abstract class GoDescriptors {
     ImmutableList.Builder<Path> vendorPathsBuilder = ImmutableList.builder();
     vendorPathsBuilder.addAll(globalVendorPaths);
     Path prefix = Paths.get("");
-    for (Path component : FluentIterable.of(new Path[]{Paths.get("")}).append(basePackagePath)) {
+    for (Path component : FluentIterable.from(new Path[]{Paths.get("")}).append(basePackagePath)) {
       prefix = prefix.resolve(component);
       vendorPathsBuilder.add(prefix.resolve("vendor"));
     }
@@ -212,7 +210,7 @@ abstract class GoDescriptors {
         assemblerFlags,
         platform,
         FluentIterable.from(params.getDeclaredDeps().get())
-            .transform(HasBuildTarget::getBuildTarget));
+            .transform(BuildRule::getBuildTarget));
     resolver.addToIndex(library);
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -227,7 +225,7 @@ abstract class GoDescriptors {
             resolver,
             platform,
             FluentIterable.from(params.getDeclaredDeps().get())
-                .transform(HasBuildTarget::getBuildTarget),
+                .transform(BuildRule::getBuildTarget),
             /* includeSelf */ false));
     resolver.addToIndex(symlinkTree);
 
@@ -297,7 +295,7 @@ abstract class GoDescriptors {
                     Suppliers.ofInstance(ImmutableSortedSet.of(writeFile))),
                 resolver,
                 goBuckConfig,
-                ImmutableSet.of(new BuildTargetSourcePath(generatorSourceTarget)),
+                ImmutableSet.of(writeFile.getSourcePathToOutput()),
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
@@ -390,7 +388,7 @@ abstract class GoDescriptors {
         params.getBuildTarget(),
         "__%s__tree");
 
-    return new SymlinkTree(params, root, treeMap);
+    return new SymlinkTree(params, root, treeMap, ruleFinder);
   }
 
   /**

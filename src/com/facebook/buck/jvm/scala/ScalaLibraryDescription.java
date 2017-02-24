@@ -28,7 +28,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
@@ -40,6 +39,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -71,14 +71,14 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
       A args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (rawParams.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
-      BuildTarget libraryTarget = rawParams.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
-      resolver.requireRule(libraryTarget);
+    if (CalculateAbi.isAbiTarget(rawParams.getBuildTarget())) {
+      BuildTarget libraryTarget = CalculateAbi.getLibraryTarget(rawParams.getBuildTarget());
+      BuildRule libraryRule = resolver.requireRule(libraryTarget);
       return CalculateAbi.of(
           rawParams.getBuildTarget(),
           ruleFinder,
           rawParams,
-          new BuildTargetSourcePath(libraryTarget));
+          Preconditions.checkNotNull(libraryRule.getSourcePathToOutput()));
     }
 
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
@@ -92,8 +92,6 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
             .add(scalaLibrary)
             .build(),
         rawParams.getExtraDeps());
-
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     BuildRuleParams javaLibraryParams =
         params.appendExtraDeps(
@@ -117,16 +115,15 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
         /* postprocessClassesCommands */ ImmutableList.of(),
         params.getDeclaredDeps().get(),
         resolver.getAllRules(args.providedDeps),
-        abiJarTarget,
         JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
         /* trackClassUsage */ false,
         /* additionalClasspathEntries */ ImmutableSet.of(),
         new ScalacToJarStepFactory(
             scalac,
-            ScalacToJarStepFactory.collectScalacArguments(
-                scalaBuckConfig,
-                resolver,
-                args.extraArguments)),
+            scalaBuckConfig.getCompilerFlags(),
+            args.extraArguments,
+            resolver.getAllRules(scalaBuckConfig.getCompilerPlugins())
+        ),
         args.resourcesRoot,
         args.manifestFile,
         args.mavenCoords,

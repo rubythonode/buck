@@ -24,26 +24,26 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacStep;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.Optional;
 import java.util.Set;
 
@@ -53,12 +53,11 @@ import java.util.Set;
  * generate a corresponding {@code R.class} file. These are called "dummy" {@code R.java} files
  * since these are later merged together into a single {@code R.java} file by {@link AaptStep}.
  */
-public class DummyRDotJava extends AbstractBuildRuleWithResolver
+public class DummyRDotJava extends AbstractBuildRule
     implements SupportsInputBasedRuleKey, HasJavaAbi {
 
   private final SourcePathRuleFinder ruleFinder;
   private final ImmutableList<HasAndroidResourceDeps> androidResourceDeps;
-  private final BuildTarget abiJar;
   private final Path outputJar;
   @AddToRuleKey
   private final JavacOptions javacOptions;
@@ -74,20 +73,16 @@ public class DummyRDotJava extends AbstractBuildRuleWithResolver
 
   public DummyRDotJava(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       Set<HasAndroidResourceDeps> androidResourceDeps,
-      BuildTarget abiJar,
       JavacOptions javacOptions,
       boolean forceFinalResourceIds,
       Optional<String> unionPackage,
       Optional<String> finalRName) {
     this(
         params,
-        resolver,
         ruleFinder,
         androidResourceDeps,
-        abiJar,
         javacOptions,
         forceFinalResourceIds,
         unionPackage,
@@ -97,25 +92,22 @@ public class DummyRDotJava extends AbstractBuildRuleWithResolver
 
   private DummyRDotJava(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       Set<HasAndroidResourceDeps> androidResourceDeps,
-      BuildTarget abiJar,
       JavacOptions javacOptions,
       boolean forceFinalResourceIds,
       Optional<String> unionPackage,
       Optional<String> finalRName,
       ImmutableList<SourcePath> abiInputs) {
-    super(
-        params.appendExtraDeps(() -> ruleFinder.filterBuildRuleInputs(abiInputs)),
-        resolver);
+    super(params.appendExtraDeps(() -> ruleFinder.filterBuildRuleInputs(abiInputs)));
     this.ruleFinder = ruleFinder;
     // Sort the input so that we get a stable ABI for the same set of resources.
-    this.androidResourceDeps = FluentIterable.from(androidResourceDeps)
-        .toSortedList(HasBuildTarget.BUILD_TARGET_COMPARATOR);
-    this.abiJar = abiJar;
+    this.androidResourceDeps = androidResourceDeps.stream()
+        .sorted(Comparator.comparing(HasAndroidResourceDeps::getBuildTarget))
+        .collect(MoreCollectors.toImmutableList());
     this.outputJar = getOutputJarPath(getBuildTarget(), getProjectFilesystem());
-    this.javacOptions = javacOptions;
+    this.javacOptions = javacOptions.withAnnotationProcessingParams(
+        javacOptions.getAnnotationProcessingParams().withoutProcessOnly());
     this.forceFinalResourceIds = forceFinalResourceIds;
     this.unionPackage = unionPackage;
     this.finalRName = finalRName;
@@ -274,10 +266,4 @@ public class DummyRDotJava extends AbstractBuildRuleWithResolver
   JavacOptions getJavacOptions() {
     return javacOptions;
   }
-
-  @Override
-  public Optional<BuildTarget> getAbiJar() {
-    return Optional.of(abiJar);
-  }
-
 }

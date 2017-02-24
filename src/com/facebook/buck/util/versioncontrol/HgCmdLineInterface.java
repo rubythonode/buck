@@ -83,9 +83,6 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private static final ImmutableList<String> ROOT_COMMAND =
       ImmutableList.of(HG_CMD_TEMPLATE, "root");
 
-  private static final ImmutableList<String> HG_ROOT_COMMAND =
-      ImmutableList.of(HG_CMD_TEMPLATE, "root");
-
   private static final ImmutableList<String> CURRENT_REVISION_ID_COMMAND =
       ImmutableList.of(HG_CMD_TEMPLATE, "log", "-l", "1", "--template", "{node|short}");
 
@@ -233,6 +230,16 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   @Override
+  public Optional<String> diffBetweenRevisionsOrAbsent(String baseRevision, String tipRevision)
+      throws InterruptedException {
+    try {
+      return Optional.of(diffBetweenRevisions(baseRevision, tipRevision));
+    } catch (VersionControlCommandFailedException e) {
+      return Optional.empty();
+    }
+  }
+
+  @Override
   public long timestampSeconds(String revisionId)
       throws VersionControlCommandFailedException, InterruptedException {
     String hgTimeString = executeCommand(replaceTemplateValue(
@@ -253,7 +260,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
         CHANGED_FILES_COMMAND,
         REVISION_ID_TEMPLATE,
         fromRevisionId));
-    return FluentIterable.of(hgChangedFilesString.split("\0"))
+    return FluentIterable.from(hgChangedFilesString.split("\0"))
         .filter(input -> !Strings.isNullOrEmpty(input))
         .toSet();
   }
@@ -261,10 +268,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   @Override
   public ImmutableMap<String, String> bookmarksRevisionsId(ImmutableSet<String> bookmarks)
       throws InterruptedException, VersionControlCommandFailedException {
-    Path remoteNames = Paths.get(
-        executeCommand(HG_ROOT_COMMAND),
-        HG_ROOT_PATH,
-        REMOTE_NAMES_FILENAME);
+    Path remoteNames = Paths.get(executeCommand(ROOT_COMMAND), HG_ROOT_PATH, REMOTE_NAMES_FILENAME);
 
     ImmutableMap.Builder<String, String> bookmarksRevisions = ImmutableMap.builder();
     try {

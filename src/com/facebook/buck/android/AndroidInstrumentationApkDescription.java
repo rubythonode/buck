@@ -26,7 +26,6 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
@@ -45,6 +44,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Ordering;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.nio.file.Path;
@@ -85,21 +85,20 @@ public class AndroidInstrumentationApkDescription
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
     BuildRule installableApk = resolver.getRule(args.apk);
-    if (!(installableApk instanceof InstallableApk)) {
+    if (!(installableApk instanceof HasInstallableApk)) {
       throw new HumanReadableException(
           "In %s, apk='%s' must be an android_binary() or apk_genrule() but was %s().",
           params.getBuildTarget(),
           installableApk.getFullyQualifiedName(),
           installableApk.getType());
     }
-    AndroidBinary apkUnderTest = getUnderlyingApk((InstallableApk) installableApk);
+    AndroidBinary apkUnderTest = getUnderlyingApk((HasInstallableApk) installableApk);
 
-    ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex = ImmutableSortedSet.copyOf(
-        HasBuildTarget.BUILD_TARGET_COMPARATOR,
-        ImmutableSet.<JavaLibrary>builder()
+    ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex =
+        new ImmutableSortedSet.Builder<>(Ordering.<JavaLibrary>natural())
             .addAll(apkUnderTest.getRulesToExcludeFromDex())
             .addAll(getClasspathDeps(apkUnderTest.getClasspathDeps()))
-            .build());
+            .build();
 
     // TODO(natthu): Instrumentation APKs should also exclude native libraries and assets from the
     // apk under test.
@@ -128,7 +127,7 @@ public class AndroidInstrumentationApkDescription
         primaryDexPath,
         DexSplitMode.NO_SPLIT,
         rulesToExcludeFromDex.stream()
-            .map(HasBuildTarget::getBuildTarget)
+            .map(BuildRule::getBuildTarget)
             .collect(MoreCollectors.toImmutableSet()),
         resourcesToExclude,
         /* skipCrunchPngs */ false,
@@ -172,7 +171,7 @@ public class AndroidInstrumentationApkDescription
 
   }
 
-  private static AndroidBinary getUnderlyingApk(InstallableApk installable) {
+  private static AndroidBinary getUnderlyingApk(HasInstallableApk installable) {
     if (installable instanceof AndroidBinary) {
       return (AndroidBinary) installable;
     } else if (installable instanceof ApkGenrule) {

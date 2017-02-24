@@ -17,12 +17,14 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -32,8 +34,9 @@ import java.util.Optional;
 public abstract class AbstractCxxSourceBuilder<
     T extends CxxConstructorArg,
     U extends Description<T>,
-    V extends AbstractCxxSourceBuilder<T, U, V>>
-    extends AbstractCxxBuilder<T, U> {
+    R extends BuildRule,
+    V extends AbstractCxxSourceBuilder<T, U, R, V>>
+    extends AbstractCxxBuilder<T, U, R> {
 
   public AbstractCxxSourceBuilder(
       U description,
@@ -66,7 +69,7 @@ public abstract class AbstractCxxSourceBuilder<
     return getThis();
   }
 
-  public V setLinkerFlags(ImmutableList<String> linkerFlags) {
+  public V setLinkerFlags(ImmutableList<StringWithMacros> linkerFlags) {
     arg.linkerFlags = linkerFlags;
     return getThis();
   }
@@ -84,7 +87,7 @@ public abstract class AbstractCxxSourceBuilder<
   }
 
   public V setPlatformLinkerFlags(
-      PatternMatchedCollection<ImmutableList<String>> platformLinkerFlags) {
+      PatternMatchedCollection<ImmutableList<StringWithMacros>> platformLinkerFlags) {
     arg.platformLinkerFlags = platformLinkerFlags;
     return getThis();
   }

@@ -12,7 +12,6 @@
 
 namespace java com.facebook.buck.distributed.thrift
 
-
 ##############################################################################
 ## DataTypes
 ##############################################################################
@@ -26,21 +25,42 @@ struct DebugInfo {
   1: optional list<LogRecord> logBook;
 }
 
-struct BuildId {
+# Uniquely identifies a stampede distributed build
+struct StampedeId {
   1 : optional string id;
 }
 
+# Uniquely identifies the run of a specific remote build server. One StampedeId will have one or
+# more RunId's associated with it. (one RunId per Minion that contributes to the build).
 struct RunId {
   1 : optional string id;
+}
+
+# Each log (stdout/stderr) is split into batches before being stored.
+# This is to allow for paging, and to prevent us going over the capacity
+# for an individual shard.
+struct LogLineBatch {
+  1: optional i32 batchNumber;
+  2: optional list<string> lines;
+  # This is used as an optimization to prevent having to count every
+  # line each time an update happens.
+  3: optional i32 totalLengthBytes;
+}
+
+struct FileInfo {
+  1: optional string contentHash;
+  2: optional binary content;
 }
 
 struct BuildSlaveInfo {
   1: optional RunId runId;
   2: optional string hostname;
   3: optional string command;
-  4: optional list<string> stdOut;
-  5: optional list<string> stdErr;
-  6: optional binary logDirZipContents;
+  4: optional i32 stdOutCurrentBatchNumber;
+  5: optional i32 stdOutCurrentBatchLineCount;
+  6: optional i32 stdErrCurrentBatchNumber;
+  7: optional i32 stdErrCurrentBatchLineCount;
+  8: optional bool logDirZipWritten;
 }
 
 enum BuildStatus {
@@ -62,6 +82,30 @@ enum BuildStatus {
   CREATED = 5,
 }
 
+enum LogStreamType {
+  UNKNOWN = 0,
+  STDOUT = 1,
+  STDERR = 2,
+}
+
+# Unique identifier for a stream at a slave.
+struct SlaveStream {
+  1: optional RunId runId;
+  2: optional LogStreamType streamType;
+}
+
+struct LogDir {
+    1: optional RunId runId;
+    2: optional binary data;
+    3: optional string errorMessage;
+}
+
+struct StreamLogs {
+    1: optional SlaveStream slaveStream;
+    2: optional list<LogLineBatch> logLineBatches;
+    3: optional string errorMessage;
+}
+
 struct ScribeData {
   1: optional string category;
   2: optional list<string> lines;
@@ -72,10 +116,7 @@ enum LogRequestType {
   SCRIBE_DATA = 1,
 }
 
-struct FileInfo {
-  1: optional string contentHash;
-  2: optional binary content;
-}
+
 
 struct PathInfo {
   1: optional string contentHash;
@@ -100,7 +141,7 @@ struct BuckVersion {
 }
 
 struct BuildJob {
-  1: optional BuildId buildId;
+  1: optional StampedeId stampedeId;
   2: optional DebugInfo debug;
   3: optional BuildStatus status = BuildStatus.UNKNOWN;
   4: optional BuckVersion buckVersion;
@@ -127,7 +168,7 @@ struct CreateBuildResponse {
 
 # Request for the servers to start a distributed build.
 struct StartBuildRequest {
-  1: optional BuildId buildId;
+  1: optional StampedeId stampedeId;
 }
 
 struct StartBuildResponse {
@@ -135,7 +176,7 @@ struct StartBuildResponse {
 }
 
 struct BuildStatusRequest {
-  1: optional BuildId buildId;
+  1: optional StampedeId stampedeId;
 }
 
 struct BuildStatusResponse {
@@ -171,12 +212,12 @@ struct FetchSourceFilesResponse {
 
 # Used to store the buildGraph and other related information to the build.
 struct StoreBuildGraphRequest {
-  1: optional BuildId buildId;
+  1: optional StampedeId stampedeId;
   2: optional binary buildGraph;
 }
 
 struct FetchBuildGraphRequest {
-  1: optional BuildId buildId;
+  1: optional StampedeId stampedeId;
 }
 
 struct FetchBuildGraphResponse {
@@ -185,15 +226,46 @@ struct FetchBuildGraphResponse {
 
 # Used to specify the BuckVersion a distributed build will use.
 struct SetBuckVersionRequest {
-  1: optional BuildId buildId;
+  1: optional StampedeId stampedeId;
   2: optional BuckVersion buckVersion;
 }
 
 # Used to store the paths and hashes of dot-files associated with a distributed
 # build.
 struct SetBuckDotFilePathsRequest {
-  1: optional BuildId buildId;
+  1: optional StampedeId stampedeId;
   2: optional list<PathInfo> dotFiles;
+}
+
+struct MultiGetBuildSlaveLogDirRequest {
+  1: optional StampedeId stampedeId;
+  2: optional list<RunId> runIds;
+}
+
+# Returns zipped up log directories in the same order as the runIds
+# that were specified in MultiGetBuildSlaveLogDirRequest. If a particular
+# runId is missing, then an error will be thrown and no response returned.
+struct MultiGetBuildSlaveLogDirResponse {
+  1: optional list<LogDir> logDirs;
+}
+
+# Uniquely identifies a log stream at a particular build slave,
+# and the first batch number to request. Batches numbers start at 1.
+struct LogLineBatchRequest {
+  1: optional SlaveStream slaveStream;
+  2: optional i32 batchNumber;
+}
+
+struct MultiGetBuildSlaveRealTimeLogsRequest {
+  1: optional StampedeId stampedeId;
+  2: optional list<LogLineBatchRequest> batches;
+}
+
+# Returns all LogLineBatches >= those specified in
+# MultiGetBuildSlaveRealTimeLogsRequest. If no LogLineBatches exist for a given
+# LogLineBatchRequest then an error will be returned.
+struct MultiGetBuildSlaveRealTimeLogsResponse {
+  1: optional list<StreamLogs> multiStreamLogs;
 }
 
 # Used to obtain announcements for users regarding current issues with Buck and
@@ -226,6 +298,8 @@ enum FrontendRequestType {
   SET_BUCK_VERSION = 12,
   ANNOUNCEMENT = 13,
   SET_DOTFILE_PATHS = 14,
+  GET_BUILD_SLAVE_LOG_DIR = 15,
+  GET_BUILD_SLAVE_REAL_TIME_LOGS = 16,
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -244,8 +318,9 @@ struct FrontendRequest {
   13: optional SetBuckVersionRequest setBuckVersionRequest;
   14: optional AnnouncementRequest announcementRequest;
   15: optional SetBuckDotFilePathsRequest setBuckDotFilePathsRequest;
-
-  // Next Free ID: 16
+  16: optional MultiGetBuildSlaveLogDirRequest multiGetBuildSlaveLogDirRequest;
+  17: optional
+    MultiGetBuildSlaveRealTimeLogsRequest multiGetBuildSlaveRealTimeLogsRequest;
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -262,8 +337,10 @@ struct FrontendResponse {
   17: optional FetchSourceFilesResponse fetchSourceFilesResponse;
   18: optional FetchBuildGraphResponse fetchBuildGraphResponse;
   19: optional AnnouncementResponse announcementResponse;
-
-  // Next Free ID: 20
+  20: optional MultiGetBuildSlaveLogDirResponse
+    multiGetBuildSlaveLogDirResponse;
+  21: optional MultiGetBuildSlaveRealTimeLogsResponse
+    multiGetBuildSlaveRealTimeLogsResponse;
 
   // [100-199] Values are reserved for the buck cache request types.
 }

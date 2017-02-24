@@ -33,6 +33,8 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -68,20 +70,24 @@ public class RemoteFileTest {
   public void ensureOutputIsAddedToBuildableContextSoItIsCached() throws Exception {
     Downloader downloader = new ExplodingDownloader();
     BuildTarget target = BuildTargetFactory.newInstance("//cheese:cake");
+    BuildRuleResolver resolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     RemoteFile remoteFile =
-        (RemoteFile) new RemoteFileBuilder(downloader, target)
+        new RemoteFileBuilder(downloader, target)
             .setUrl("http://www.facebook.com/")
             .setSha1(Hashing.sha1().hashLong(42))
-            .build(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY,
-                    new DefaultTargetNodeToBuildRuleTransformer()));
+            .build(resolver);
 
     BuildableContext buildableContext = EasyMock.createNiceMock(BuildableContext.class);
-    buildableContext.recordArtifact(remoteFile.getPathToOutput());
+    buildableContext.recordArtifact(
+        pathResolver.getRelativePath(remoteFile.getSourcePathToOutput()));
     EasyMock.replay(buildableContext);
 
-    remoteFile.getBuildSteps(FakeBuildContext.NOOP_CONTEXT, buildableContext);
+    remoteFile.getBuildSteps(
+        FakeBuildContext.withSourcePathResolver(pathResolver),
+        buildableContext);
 
     EasyMock.verify(buildableContext);
   }
@@ -206,7 +212,8 @@ public class RemoteFileTest {
         try {
           return Arrays.equals(Files.readAllBytes((Path) o), content);
         } catch (IOException e) {
-          throw Throwables.propagate(e);
+          Throwables.throwIfUnchecked(e);
+          throw new RuntimeException(e);
         }
       }
 
@@ -271,9 +278,14 @@ public class RemoteFileTest {
         hashCode,
         "output.txt",
         type);
+    BuildRuleResolver resolver = new BuildRuleResolver(
+        TargetGraph.EMPTY,
+        new DefaultTargetNodeToBuildRuleTransformer());
+    resolver.addToIndex(remoteFile);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     ImmutableList<Step> buildSteps = remoteFile.getBuildSteps(
-        FakeBuildContext.NOOP_CONTEXT,
+        FakeBuildContext.withSourcePathResolver(pathResolver),
         new FakeBuildableContext());
     ExecutionContext context = TestExecutionContext.newInstance();
     for (Step buildStep : buildSteps) {
@@ -283,6 +295,6 @@ public class RemoteFileTest {
       }
     }
 
-    return filesystem.resolve(remoteFile.getPathToOutput());
+    return pathResolver.getAbsolutePath(remoteFile.getSourcePathToOutput());
   }
 }

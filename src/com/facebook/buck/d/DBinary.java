@@ -16,16 +16,14 @@
 
 package com.facebook.buck.d;
 
-import com.facebook.buck.model.HasBuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
@@ -37,7 +35,7 @@ import java.util.stream.Stream;
 /**
  * BinaryBuildRule implementation for D binaries.
  */
-public class DBinary extends AbstractBuildRuleWithResolver implements
+public class DBinary extends AbstractBuildRule implements
     BinaryBuildRule,
     HasRuntimeDeps {
 
@@ -47,11 +45,10 @@ public class DBinary extends AbstractBuildRuleWithResolver implements
 
   public DBinary(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       Tool executable,
       Path output) {
-    super(params, resolver);
+    super(params);
     this.ruleFinder = ruleFinder;
     this.executable = executable;
     this.output = output;
@@ -75,11 +72,9 @@ public class DBinary extends AbstractBuildRuleWithResolver implements
   }
 
   @Override
-  public Stream<SourcePath> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps() {
     // Return the actual executable as a runtime dependency.
     // Without this, the file is not written when we get a cache hit.
-    return executable.getDeps(ruleFinder).stream()
-        .map(HasBuildTarget::getBuildTarget)
-        .map(BuildTargetSourcePath::new);
+    return executable.getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget);
   }
 }

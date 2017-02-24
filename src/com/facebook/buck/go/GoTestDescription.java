@@ -21,18 +21,15 @@ import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
@@ -99,8 +96,7 @@ public class GoTestDescription implements
 
       Path packageName = getGoPackageName(resolver, buildTarget, args);
 
-      SourcePath output = new BuildTargetSourcePath(
-          resolver.requireRule(buildTarget).getBuildTarget());
+      SourcePath output = resolver.requireRule(buildTarget).getSourcePathToOutput();
       return Optional.of(metadataClass.cast(GoLinkable.builder()
           .setGoLinkInput(ImmutableMap.of(packageName, output))
           .build()));
@@ -179,12 +175,14 @@ public class GoTestDescription implements
         platform);
     resolver.addToIndex(testMain);
 
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new GoTest(
         params.copyWithDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(testMain)),
             Suppliers.ofInstance(ImmutableSortedSet.of())
         ),
+        ruleFinder,
         pathResolver,
         testMain,
         args.labels,
@@ -216,7 +214,7 @@ public class GoTestDescription implements
             Suppliers.ofInstance(ImmutableSortedSet.of(generatedTestMain))),
         resolver,
         goBuckConfig,
-        ImmutableSet.of(new BuildTargetSourcePath(generatedTestMain.getBuildTarget())),
+        ImmutableSet.of(generatedTestMain.getSourcePathToOutput()),
         args.compilerFlags,
         args.assemblerFlags,
         args.linkerFlags,
@@ -307,7 +305,7 @@ public class GoTestDescription implements
               .build(),
           platform,
           FluentIterable.from(params.getDeclaredDeps().get())
-              .transform(HasBuildTarget::getBuildTarget));
+              .transform(BuildRule::getBuildTarget));
     } else {
       testLibrary = GoDescriptors.createGoCompileRule(
           params,
@@ -319,7 +317,7 @@ public class GoTestDescription implements
           args.assemblerFlags,
           platform,
           FluentIterable.from(params.getDeclaredDeps().get())
-              .transform(HasBuildTarget::getBuildTarget));
+              .transform(BuildRule::getBuildTarget));
     }
 
     return testLibrary;
@@ -355,7 +353,6 @@ public class GoTestDescription implements
     public List<String> linkerFlags = ImmutableList.of();
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public ImmutableSet<String> contacts = ImmutableSet.of();
-    public ImmutableSet<Label> labels = ImmutableSet.of();
     public Optional<Long> testRuleTimeoutMs;
     public Optional<Boolean> runTestSeparately;
     public ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();

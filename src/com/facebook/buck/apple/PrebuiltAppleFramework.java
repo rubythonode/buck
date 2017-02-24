@@ -37,7 +37,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -124,7 +123,7 @@ public class PrebuiltAppleFramework
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
     builder.add(new MkdirStep(getProjectFilesystem(), out.getParent()));
-    builder.add(new RmStep(getProjectFilesystem(), out, RmStep.Mode.FORCED, RmStep.Mode.RECURSIVE));
+    builder.add(new RmStep(getProjectFilesystem(), out, RmStep.Mode.RECURSIVE));
     builder.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
@@ -167,9 +166,7 @@ public class PrebuiltAppleFramework
           builder.addAllFrameworks(frameworks);
 
           ruleResolver.requireRule(this.getBuildTarget());
-          builder.addFrameworks(
-              FrameworkPath.ofSourcePath(new BuildTargetSourcePath(this.getBuildTarget()))
-          );
+          builder.addFrameworks(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
         }
         return builder.build();
       case PRIVATE:
@@ -224,8 +221,7 @@ public class PrebuiltAppleFramework
     ImmutableSet.Builder<FrameworkPath> frameworkPaths = ImmutableSet.builder();
     frameworkPaths.addAll(Preconditions.checkNotNull(frameworks));
 
-    frameworkPaths.add(
-        FrameworkPath.ofSourcePath(new BuildTargetSourcePath(this.getBuildTarget())));
+    frameworkPaths.add(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
     if (type == Linker.LinkableDepType.SHARED) {
       linkerArgsBuilder.addAll(StringArg.from(
           "-rpath",

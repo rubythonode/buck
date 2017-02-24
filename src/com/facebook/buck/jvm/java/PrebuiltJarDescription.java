@@ -20,7 +20,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -60,7 +60,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       A args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
       return CalculateAbi.of(
           params.getBuildTarget(),
           ruleFinder,
@@ -70,13 +70,10 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
 
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
-    BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
-
     BuildRule prebuilt = new PrebuiltJar(
         params,
         pathResolver,
         args.binaryJar,
-        abiJarTarget,
         args.sourceJar,
         args.gwtJar,
         args.javadocUrl,
@@ -90,14 +87,14 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         flavoredBuildTarget,
         /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of(prebuilt)),
         /* inferredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
-    BuildRule gwtModule = createGwtModule(gwtParams, pathResolver, args);
+    BuildRule gwtModule = createGwtModule(gwtParams, args);
     resolver.addToIndex(gwtModule);
 
     return prebuilt;
   }
 
   @VisibleForTesting
-  static BuildRule createGwtModule(BuildRuleParams params, SourcePathResolver resolver, Arg arg) {
+  static BuildRule createGwtModule(BuildRuleParams params, Arg arg) {
     // Because a PrebuiltJar rarely requires any building whatsoever (it could if the source_jar
     // is a BuildTargetSourcePath), we make the PrebuiltJar a dependency of the GWT module. If this
     // becomes a performance issue in practice, then we will explore reducing the dependencies of
@@ -111,16 +108,15 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       input = arg.binaryJar;
     }
 
-    class ExistingOuputs extends AbstractBuildRuleWithResolver {
+    class ExistingOuputs extends AbstractBuildRule {
       @AddToRuleKey
       private final SourcePath source;
       private final Path output;
 
       protected ExistingOuputs(
           BuildRuleParams params,
-          SourcePathResolver resolver,
           SourcePath source) {
-        super(params, resolver);
+        super(params);
         this.source = source;
         BuildTarget target = params.getBuildTarget();
         this.output = BuildTargets.getGenPath(
@@ -133,13 +129,14 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       public ImmutableList<Step> getBuildSteps(
           BuildContext context,
           BuildableContext buildableContext) {
-        buildableContext.recordArtifact(getPathToOutput());
+        buildableContext.recordArtifact(
+            context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
         ImmutableList.Builder<Step> steps = ImmutableList.builder();
         steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()));
         steps.add(CopyStep.forFile(
                 getProjectFilesystem(),
-                getResolver().getAbsolutePath(source),
+                context.getSourcePathResolver().getAbsolutePath(source),
                 output));
 
         return steps.build();
@@ -150,7 +147,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         return output;
       }
     }
-    return new ExistingOuputs(params, resolver, input);
+    return new ExistingOuputs(params, input);
   }
 
   @SuppressFieldNotInitialized
