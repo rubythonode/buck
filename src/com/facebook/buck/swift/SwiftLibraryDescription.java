@@ -22,6 +22,7 @@ import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.NativeLinkable;
@@ -58,6 +59,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -233,6 +235,17 @@ public class SwiftLibraryDescription implements
               .filter(Optional::isPresent)
               .transform(Optional::get)
               .toSortedSet(Ordering.natural()));
+
+      if (args.bridgingHeader.isPresent()) {
+        for (HeaderVisibility headerVisibility : HeaderVisibility.values()) {
+          BuildTarget headerSymlinkTreeTarget = CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
+              BuildTarget.builder(buildTarget.getUnflavoredBuildTarget()).build(),
+              cxxPlatform.getFlavor(),
+              headerVisibility);
+          BuildRule headerSymlinkTreeRule = resolver.requireRule(headerSymlinkTreeTarget);
+          params = params.appendExtraDeps(Collections.singletonList(headerSymlinkTreeRule));
+        }
+      }
 
       return new SwiftCompile(
           cxxPlatform,
