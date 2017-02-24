@@ -236,17 +236,6 @@ public class SwiftLibraryDescription implements
               .transform(Optional::get)
               .toSortedSet(Ordering.natural()));
 
-      if (args.bridgingHeader.isPresent()) {
-        for (HeaderVisibility headerVisibility : HeaderVisibility.values()) {
-          BuildTarget headerSymlinkTreeTarget = CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
-              BuildTarget.builder(buildTarget.getUnflavoredBuildTarget()).build(),
-              cxxPlatform.getFlavor(),
-              headerVisibility);
-          BuildRule headerSymlinkTreeRule = resolver.requireRule(headerSymlinkTreeTarget);
-          params = params.appendExtraDeps(Collections.singletonList(headerSymlinkTreeRule));
-        }
-      }
-
       return new SwiftCompile(
           cxxPlatform,
           swiftBuckConfig,
@@ -266,6 +255,18 @@ public class SwiftLibraryDescription implements
 
     // Otherwise, we return the generic placeholder of this library.
     params = LinkerMapMode.restoreLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode);
+
+    if (args.bridgingHeader.isPresent() && platform.isPresent()) {
+      for (HeaderVisibility headerVisibility : HeaderVisibility.values()) {
+        BuildTarget headerSymlinkTreeTarget = CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
+            BuildTarget.builder(buildTarget.getUnflavoredBuildTarget()).build(),
+            platform.get().getValue().getFlavor(),
+            headerVisibility);
+        BuildRule headerSymlinkTreeRule = resolver.requireRule(headerSymlinkTreeTarget);
+        params = params.appendExtraDeps(Collections.singletonList(headerSymlinkTreeRule));
+      }
+    }
+
     return new SwiftLibrary(
         params,
         resolver,
