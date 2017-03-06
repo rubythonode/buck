@@ -104,7 +104,7 @@ public class AppleAssetCatalog extends AbstractBuildRule {
         new ActoolStep(
             getProjectFilesystem().getRootPath(),
             applePlatformName,
-            actool.getEnvironment(),
+            actool.getEnvironment(context.getSourcePathResolver()),
             actool.getCommandPrefix(context.getSourcePathResolver()),
             absoluteAssetCatalogDirs,
             getProjectFilesystem().resolve(outputDir),
@@ -120,7 +120,7 @@ public class AppleAssetCatalog extends AbstractBuildRule {
 
   @Nullable
   @Override
-  public Path getPathToOutput() {
+  public SourcePath getSourcePathToOutput() {
     return null;
   }
 

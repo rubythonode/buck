@@ -53,6 +53,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -312,7 +313,7 @@ public class CxxTestDescriptionTest {
                 test.getBuildTarget(),
                 Optional.empty()));
     assertThat(
-        Arg.stringify(binary.getArgs()),
+        Arg.stringify(binary.getArgs(), pathResolver),
         Matchers.hasItem(
             String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver))));
     assertThat(
@@ -364,7 +365,7 @@ public class CxxTestDescriptionTest {
                 Optional.empty()));
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
-        Arg.stringify(binary.getArgs()),
+        Arg.stringify(binary.getArgs(), pathResolver),
         Matchers.hasItem(
             String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver))));
     assertThat(
@@ -409,7 +410,7 @@ public class CxxTestDescriptionTest {
                 test.getBuildTarget(),
                 Optional.empty()));
     assertThat(
-        Arg.stringify(binary.getArgs()),
+        Arg.stringify(binary.getArgs(), pathResolver),
         Matchers.hasItem(
             String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver))));
     assertThat(
@@ -450,7 +451,7 @@ public class CxxTestDescriptionTest {
                 test.getBuildTarget(),
                 Optional.empty()));
     assertThat(
-        Arg.stringify(binary.getArgs()),
+        Arg.stringify(binary.getArgs(), pathResolver),
         Matchers.not(
             Matchers.hasItem(
                 String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver)))));
@@ -465,7 +466,6 @@ public class CxxTestDescriptionTest {
     Path resource = filesystem.getPath("resource");
     filesystem.touch(resource);
     for (CxxTestType framework : CxxTestType.values()) {
-
       // Create a test rule without resources attached.
       BuildRuleResolver resolver =
           new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
@@ -476,7 +476,7 @@ public class CxxTestDescriptionTest {
       CxxTest cxxTestWithoutResources =
           builder
               .build(resolver, filesystem);
-      RuleKey ruleKeyWithoutResource = getRuleKey(cxxTestWithoutResources);
+      RuleKey ruleKeyWithoutResource = getRuleKey(resolver, cxxTestWithoutResources);
 
       // Create a rule with a resource attached.
       resolver =
@@ -489,7 +489,7 @@ public class CxxTestDescriptionTest {
       CxxTest cxxTestWithResources =
           builder
               .build(resolver, filesystem);
-      RuleKey ruleKeyWithResource = getRuleKey(cxxTestWithResources);
+      RuleKey ruleKeyWithResource = getRuleKey(resolver, cxxTestWithResources);
 
       // Verify that their rule keys are different.
       assertThat(ruleKeyWithoutResource, Matchers.not(Matchers.equalTo(ruleKeyWithResource)));
@@ -513,13 +513,13 @@ public class CxxTestDescriptionTest {
     }
   }
 
-  private RuleKey getRuleKey(BuildRule rule) {
-    BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+  private RuleKey getRuleKey(BuildRuleResolver resolver, BuildRule rule) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FileHashCache fileHashCache =
-        DefaultFileHashCache.createDefaultFileHashCache(rule.getProjectFilesystem());
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(rule.getProjectFilesystem())));
     DefaultRuleKeyFactory factory =
         new DefaultRuleKeyFactory(0, fileHashCache, pathResolver, ruleFinder);
     return factory.build(rule);

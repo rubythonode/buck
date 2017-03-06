@@ -51,6 +51,7 @@ import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.zip.ZipConstants;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -89,12 +90,16 @@ public class AndroidBinaryIntegrationTest {
   @Rule
   public TemporaryPaths tmpFolder = new TemporaryPaths();
 
+  @Rule
+  public TemporaryPaths secondaryFolder = new TemporaryPaths();
+
   private ProjectWorkspace workspace;
 
   private ProjectFilesystem filesystem;
 
   private static final String SIMPLE_TARGET = "//apps/multidex:app";
   private static final String RAW_DEX_TARGET = "//apps/multidex:app-art";
+  private static final String APP_REDEX_TARGET = "//apps/sample:app_redex";
 
   @Before
   public void setUp() throws IOException {
@@ -105,7 +110,7 @@ public class AndroidBinaryIntegrationTest {
         "android_project",
         tmpFolder);
     workspace.setUp();
-    workspace.runBuckBuild(SIMPLE_TARGET).assertSuccess();
+    workspace.runBuckBuild(SIMPLE_TARGET, APP_REDEX_TARGET).assertSuccess();
     filesystem = new ProjectFilesystem(workspace.getDestPath());
   }
 
@@ -125,6 +130,31 @@ public class AndroidBinaryIntegrationTest {
     zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
   }
 
+  @Test
+  public void testAppHasAssets() throws IOException {
+    workspace.runBuckCommand("build", SIMPLE_TARGET).assertSuccess();
+
+    Path apkPath = BuildTargets.getGenPath(
+        filesystem,
+        BuildTargetFactory.newInstance(SIMPLE_TARGET),
+        "%s.apk");
+    ZipInspector zipInspector = new ZipInspector(workspace.getPath(apkPath));
+    zipInspector.assertFileExists("assets/asset_file.txt");
+    zipInspector.assertFileExists("assets/hilarity.txt");
+    zipInspector.assertFileContents(
+        "assets/hilarity.txt",
+        workspace.getFileContents(
+            "res/com/sample/base/buck-assets/hilarity.txt"));
+
+    // Test that after changing an asset, the new asset is in the apk.
+    String newContents = "some new contents";
+    workspace.writeContentsToPath(
+        newContents,
+        "res/com/sample/base/buck-assets/hilarity.txt");
+    workspace.runBuckCommand("build", SIMPLE_TARGET).assertSuccess();
+    zipInspector = new ZipInspector(workspace.getPath(apkPath));
+    zipInspector.assertFileContents("assets/hilarity.txt", newContents);
+  }
 
   @Test
   public void testRawSplitDexHasSecondary() throws IOException {
@@ -533,6 +563,61 @@ public class AndroidBinaryIntegrationTest {
     }
   }
 
+  @Test
+  public void testNativeLibraryCrossCellMerging() throws IOException, InterruptedException {
+    // Set up a cross-cell workspace
+    ProjectWorkspace secondary = TestDataHelper.createProjectWorkspaceForScenario(
+        new AndroidBinaryIntegrationTest(),
+        "android_project/secondary",
+        secondaryFolder);
+    secondary.setUp();
+
+    NdkCxxPlatform platform = getNdkCxxPlatform();
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
+    ));
+    Path tmpDir = tmpFolder.newFolder("merging_tmp");
+    SymbolGetter syms =
+        new SymbolGetter(
+            new DefaultProcessExecutor(new TestConsole()),
+            tmpDir,
+            platform.getObjdump(),
+            pathResolver);
+    SymbolsAndDtNeeded info;
+
+    TestDataHelper.overrideBuckconfig(
+        workspace,
+        ImmutableMap.of(
+            "ndk", ImmutableMap.of("cpu_abis", "x86"),
+            "repositories", ImmutableMap.of(
+                "secondary", secondary.getPath(".").normalize().toString())));
+    workspace.replaceFileContents(
+        workspace.getPath("apps/sample/BUCK").normalize().toString(),
+        "#'secondary//merge:G'",
+        "'secondary//merge:G'");
+
+
+    Path apkPath = workspace.buildAndReturnOutput(
+        "//apps/sample:app_with_merged_cross_cell_libs");
+
+    ZipInspector zipInspector = new ZipInspector(apkPath);
+    zipInspector.assertFileDoesNotExist("lib/x86/lib1a.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/lib1b.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/lib1g.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/lib1h.so");
+
+    info = syms.getSymbolsAndDtNeeded(apkPath, "lib/x86/lib1.so");
+    assertThat(info.symbols.global, Matchers.hasItem("A"));
+    assertThat(info.symbols.global, Matchers.hasItem("B"));
+    assertThat(info.symbols.global, Matchers.hasItem("G"));
+    assertThat(info.symbols.global, Matchers.hasItem("H"));
+    assertThat(info.symbols.global, Matchers.hasItem("glue_1"));
+    assertThat(info.symbols.global, not(Matchers.hasItem("glue_2")));
+    assertThat(info.dtNeeded, not(Matchers.hasItem("libnative_merge_B.so")));
+    assertThat(info.dtNeeded, not(Matchers.hasItem("libmerge_G.so")));
+    assertThat(info.dtNeeded, not(Matchers.hasItem("libmerge_H.so")));
+  }
+
 
   @Test
   public void testNativeRelinker() throws IOException, InterruptedException {
@@ -877,6 +962,68 @@ public class AndroidBinaryIntegrationTest {
   @Test
   public void testApkEmptyResDirectoriesBuildsCorrectly() throws IOException {
     workspace.runBuckBuild("//apps/sample:app_with_aar_and_no_res").assertSuccess();
+  }
+
+  @Test
+  public void testReDexIsCalledAppropriatelyFromAndroidBinary() throws IOException {
+    Path apk = workspace.buildAndReturnOutput(APP_REDEX_TARGET);
+    Path unzippedApk = unzip(apk.getParent(), apk, "app_redex");
+
+    // We use a fake ReDex binary that writes out the arguments it received as JSON so that we can
+    // verify that it was called in the right way.
+    ObjectMapper mapper = ObjectMappers.newDefaultInstance();
+    @SuppressWarnings("unchecked")
+    Map<String, Object> userData = mapper.readValue(unzippedApk.toFile(), Map.class);
+
+    String androidSdk = (String) userData.get("ANDROID_SDK");
+    assertTrue(
+        "ANDROID_SDK environment variable must be set so ReDex runs with zipalign",
+        androidSdk != null && !androidSdk.isEmpty());
+    assertEquals(
+        workspace.getDestPath().toString(),
+        userData.get("PWD"));
+
+    assertTrue(userData.get("config").toString().endsWith("apps/sample/redex-config.json"));
+    assertEquals(
+        "buck-out/gen/apps/sample/__app_redex#aapt_package__proguard__/.proguard/seeds.txt",
+        userData.get("keep"));
+    assertEquals(
+        "my_alias",
+        userData.get("keyalias"));
+    assertEquals(
+        "android",
+        userData.get("keypass"));
+    assertEquals(
+        workspace.resolve("keystores/debug.keystore").toString(),
+        userData.get("keystore"));
+    assertEquals(
+        "buck-out/gen/apps/sample/app_redex.apk.redex",
+        userData.get("out"));
+    assertEquals(
+        "buck-out/gen/apps/sample/__app_redex#aapt_package__proguard__/.proguard/command-line.txt",
+        userData.get("P"));
+    assertEquals(
+        "buck-out/gen/apps/sample/__app_redex#aapt_package__proguard__/.proguard/mapping.txt",
+        userData.get("proguard-map"));
+    assertTrue((Boolean) userData.get("sign"));
+    assertEquals(
+        "my_param_name={\"foo\": true}",
+        userData.get("J"));
+  }
+
+  @Test
+  public void testEditingRedexToolForcesRebuild() throws IOException {
+    workspace.replaceFileContents(
+        "tools/redex/fake_redex.py",
+        "main()\n",
+        "main() \n");
+
+    workspace.resetBuildLogFile();
+    workspace.runBuckBuild(APP_REDEX_TARGET).assertSuccess();
+
+    BuckBuildLog buildLog = workspace.getBuildLog();
+
+    buildLog.assertTargetBuiltLocally(APP_REDEX_TARGET);
   }
 
   @Test

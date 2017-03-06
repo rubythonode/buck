@@ -19,17 +19,18 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
+import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.step.Step;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
@@ -38,13 +39,14 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.UncheckedExecutionException;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.concurrent.ExecutionException;
-import java.util.function.Predicate;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Predicate;
 
 /**
  * Rule to generate a precompiled header from an existing header.
@@ -74,17 +76,23 @@ public class CxxPrecompiledHeader
     extends AbstractBuildRule
     implements SupportsDependencyFileRuleKey, SupportsInputBasedRuleKey {
 
-  private final Path output;
-
+  // Fields that are added to rule key as is.
   @AddToRuleKey
   private final PreprocessorDelegate preprocessorDelegate;
   @AddToRuleKey
   private final CompilerDelegate compilerDelegate;
-  private final CxxToolFlags compilerFlags;
   @AddToRuleKey
   private final SourcePath input;
   @AddToRuleKey
   private final CxxSource.Type inputType;
+
+  // Fields that added to the rule key with some processing.
+  private final CxxToolFlags compilerFlags;
+
+  // Fields that are not added to the rule key.
+  private final DebugPathSanitizer compilerSanitizer;
+  private final DebugPathSanitizer assemblerSanitizer;
+  private final Path output;
 
   /**
    * Cache the loading and processing of the depfile. This data can always be reloaded from disk, so
@@ -92,9 +100,6 @@ public class CxxPrecompiledHeader
    */
   private final Cache<BuildContext, ImmutableList<Path>> depFileCache =
       CacheBuilder.newBuilder().weakKeys().weakValues().build();
-
-  private final DebugPathSanitizer compilerSanitizer;
-  private final DebugPathSanitizer assemblerSanitizer;
 
   public CxxPrecompiledHeader(
       BuildRuleParams buildRuleParams,
@@ -145,8 +150,8 @@ public class CxxPrecompiledHeader
   }
 
   @Override
-  public Path getPathToOutput() {
-    return output;
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
   }
 
   private Path getSuffixedOutput(SourcePathResolver pathResolver, String suffix) {

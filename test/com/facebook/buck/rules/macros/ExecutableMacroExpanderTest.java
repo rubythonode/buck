@@ -20,19 +20,18 @@ import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.model.MacroException;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.MacroException;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -185,18 +184,12 @@ public class ExecutableMacroExpanderTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     ruleResolver.addToIndex(
-        new NoopBinaryBuildRule(params, pathResolver) {
+        new NoopBinaryBuildRule(params) {
           @Override
           public Tool getExecutableCommand() {
             return new CommandTool.Builder()
-                .addArg(
-                    new SourcePathArg(
-                        getResolver(),
-                        new BuildTargetSourcePath(dep1.getBuildTarget())))
-                .addArg(
-                    new SourcePathArg(
-                        getResolver(),
-                        new BuildTargetSourcePath(dep2.getBuildTarget())))
+                .addArg(SourcePathArg.of(dep1.getSourcePathToOutput()))
+                .addArg(SourcePathArg.of(dep2.getSourcePathToOutput()))
                 .build();
           }
         });
@@ -229,13 +222,11 @@ public class ExecutableMacroExpanderTest {
   public void extractRuleKeyAppendable() throws MacroException {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     final Tool tool = new CommandTool.Builder().addArg("command").build();
     ruleResolver.addToIndex(
-        new NoopBinaryBuildRule(params, pathResolver) {
+        new NoopBinaryBuildRule(params) {
           @Override
           public Tool getExecutableCommand() {
             return tool;
@@ -255,10 +246,8 @@ public class ExecutableMacroExpanderTest {
       extends NoopBuildRule
       implements BinaryBuildRule {
 
-    public NoopBinaryBuildRule(
-        BuildRuleParams params,
-        SourcePathResolver resolver) {
-      super(params, resolver);
+    public NoopBinaryBuildRule(BuildRuleParams params) {
+      super(params);
     }
 
   }

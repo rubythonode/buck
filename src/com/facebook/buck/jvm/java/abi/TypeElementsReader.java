@@ -17,6 +17,10 @@
 package com.facebook.buck.jvm.java.abi;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
+
+import org.objectweb.asm.ClassVisitor;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,7 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.annotation.Nullable;
+import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
@@ -37,20 +41,27 @@ import javax.lang.model.util.Elements;
  * A {@link LibraryReader} that reads from a list of {@link TypeElement}s and their
  * inner types.
  */
-class TypeElementsReader implements LibraryReader<TypeElement> {
+class TypeElementsReader implements LibraryReader {
+  private final SourceVersion targetVersion;
   private final Elements elements;
-  private final Iterable<TypeElement> topLevelTypes;
-  @Nullable
-  private Map<Path, TypeElement> allTypes;
+  private final Supplier<Map<Path, TypeElement>> allTypes;
 
-  TypeElementsReader(Elements elements, Iterable<TypeElement> topLevelTypes) {
+  TypeElementsReader(
+      SourceVersion targetVersion,
+      Elements elements,
+      Iterable<TypeElement> topLevelTypes) {
+    this.targetVersion = targetVersion;
     this.elements = elements;
-    this.topLevelTypes = topLevelTypes;
+    this.allTypes = Suppliers.memoize(() -> {
+      Map<Path, TypeElement> types = new LinkedHashMap<>();
+      topLevelTypes.forEach(type -> addTypeElements(type, types));
+      return types;
+    });
   }
 
   @Override
   public List<Path> getRelativePaths() throws IOException {
-    return new ArrayList<>(getAllTypes().keySet());
+    return new ArrayList<>(allTypes.get().keySet());
   }
 
   @Override
@@ -59,22 +70,14 @@ class TypeElementsReader implements LibraryReader<TypeElement> {
   }
 
   @Override
-  public TypeElement openClass(Path relativePath) throws IOException {
-    return Preconditions.checkNotNull(getAllTypes().get(relativePath));
+  public void visitClass(Path relativePath, ClassVisitor cv) throws IOException {
+    TypeElement typeElement = Preconditions.checkNotNull(allTypes.get().get(relativePath));
+    new ClassVisitorDriverFromElement(targetVersion, elements).driveVisitor(typeElement, cv);
   }
 
   @Override
   public void close() throws IOException {
     // Nothing
-  }
-
-  private Map<Path, TypeElement> getAllTypes() {
-    if (allTypes == null) {
-      allTypes = new LinkedHashMap<>();
-      topLevelTypes.forEach(type -> addTypeElements(type, allTypes));
-    }
-
-    return allTypes;
   }
 
   private void addTypeElements(Element rootElement, Map<Path, TypeElement> typeElements) {

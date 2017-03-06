@@ -28,6 +28,7 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
@@ -127,7 +128,7 @@ public class AppleDsym
             RmStep.Mode.RECURSIVE),
         new DsymStep(
             getProjectFilesystem(),
-            dsymutil.getEnvironment(),
+            dsymutil.getEnvironment(context.getSourcePathResolver()),
             dsymutil.getCommandPrefix(context.getSourcePathResolver()),
             unstrippedBinaryPath,
             dsymOutputPath),
@@ -138,8 +139,8 @@ public class AppleDsym
   }
 
   @Override
-  public Path getPathToOutput() {
-    return dsymOutputPath;
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), dsymOutputPath);
   }
 
   @Override

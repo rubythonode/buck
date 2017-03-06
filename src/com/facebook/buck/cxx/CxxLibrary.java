@@ -28,7 +28,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -63,7 +62,6 @@ public class CxxLibrary
 
   private final BuildRuleParams params;
   private final BuildRuleResolver ruleResolver;
-  private final SourcePathResolver pathResolver;
   private final Iterable<? extends BuildRule> exportedDeps;
   private final Predicate<CxxPlatform> hasExportedHeaders;
   private final Predicate<CxxPlatform> headerOnly;
@@ -98,7 +96,6 @@ public class CxxLibrary
   public CxxLibrary(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       Iterable<? extends BuildRule> exportedDeps,
       Predicate<CxxPlatform> hasExportedHeaders,
       Predicate<CxxPlatform> headerOnly,
@@ -115,10 +112,9 @@ public class CxxLibrary
       ImmutableSortedSet<BuildTarget> tests,
       boolean canBeAsset,
       boolean propagateLinkables) {
-    super(params, pathResolver);
+    super(params);
     this.params = params;
     this.ruleResolver = ruleResolver;
-    this.pathResolver = pathResolver;
     this.exportedDeps = exportedDeps;
     this.hasExportedHeaders = hasExportedHeaders;
     this.headerOnly = headerOnly;
@@ -280,8 +276,7 @@ public class CxxLibrary
                     CxxLibraryDescription.Type.SHARED_INTERFACE.getFlavor() :
                     CxxLibraryDescription.Type.SHARED.getFlavor());
         linkerArgsBuilder.add(
-            new SourcePathArg(
-                pathResolver,
+            SourcePathArg.of(
                 Preconditions.checkNotNull(rule.getSourcePathToOutput())));
       }
     }
@@ -377,9 +372,6 @@ public class CxxLibrary
 
   @Override
   public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform) {
-    cxxPlatform.getCompilerDebugPathSanitizer().assertInProjectFilesystem(
-        this,
-        getProjectFilesystem());
     return linkTargetInput.apply(cxxPlatform);
   }
 

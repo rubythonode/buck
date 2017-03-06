@@ -22,10 +22,11 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -33,7 +34,6 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
 
-import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class AndroidManifestDescriptionTest {
@@ -47,11 +47,13 @@ public class AndroidManifestDescriptionTest {
         BuildTargetFactory.newInstance("//foo:bar"),
         new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver))) {
       @Override
-      public Path getPathToOutput() {
-        return Paths.get("buck-out/gen/foo/bar/AndroidManifest.xml");
+      public SourcePath getSourcePathToOutput() {
+        return new ExplicitBuildTargetSourcePath(
+            getBuildTarget(),
+            Paths.get("buck-out/gen/foo/bar/AndroidManifest.xml"));
       }
     };
-    BuildTargetSourcePath skeleton = new BuildTargetSourcePath(ruleWithOutput.getBuildTarget());
+    SourcePath skeleton = ruleWithOutput.getSourcePathToOutput();
     buildRuleResolver.addToIndex(ruleWithOutput);
 
     AndroidManifestDescription.Arg arg = new AndroidManifestDescription.Arg();

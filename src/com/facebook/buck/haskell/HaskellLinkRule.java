@@ -24,6 +24,8 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
@@ -78,7 +80,7 @@ public class HaskellLinkRule extends AbstractBuildRule {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
+      BuildContext buildContext,
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(getOutput());
     return ImmutableList.of(
@@ -91,20 +93,20 @@ public class HaskellLinkRule extends AbstractBuildRule {
           public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
             return ImmutableMap.<String, String>builder()
                 .putAll(super.getEnvironmentVariables(context))
-                .putAll(linker.getEnvironment())
+                .putAll(linker.getEnvironment(buildContext.getSourcePathResolver()))
                 .build();
           }
 
           @Override
-          protected ImmutableList<String> getShellCommandInternal(ExecutionContext execContext) {
+          protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
             return ImmutableList.<String>builder()
-                .addAll(linker.getCommandPrefix(context.getSourcePathResolver()))
+                .addAll(linker.getCommandPrefix(buildContext.getSourcePathResolver()))
                 .add("-o", getProjectFilesystem().resolve(getOutput()).toString())
-                .addAll(Arg.stringify(args))
+                .addAll(Arg.stringify(args, buildContext.getSourcePathResolver()))
                 .addAll(
                     MoreIterables.zipAndConcat(
                         Iterables.cycle("-optl"),
-                        Arg.stringify(linkerArgs)))
+                        Arg.stringify(linkerArgs, buildContext.getSourcePathResolver())))
                 .build();
           }
 
@@ -117,13 +119,12 @@ public class HaskellLinkRule extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutput() {
-    return getOutput();
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getOutput());
   }
 
   @Override
   public boolean isCacheable() {
     return cacheable;
   }
-
 }

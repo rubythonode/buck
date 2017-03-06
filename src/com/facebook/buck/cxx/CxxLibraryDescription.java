@@ -37,6 +37,7 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -147,6 +148,100 @@ public class CxxLibraryDescription implements
 
   }
 
+  private static ImmutableMap<CxxPreprocessAndCompile, SourcePath> requireObjects(
+      BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
+      CxxBuckConfig cxxBuckConfig,
+      CxxPlatform cxxPlatform,
+      CxxSourceRuleFactory.PicType pic,
+      CxxLibraryDescription.Arg args) throws NoSuchBuildTargetException {
+
+    ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags =
+        CxxFlags.getLanguageFlags(
+            args.exportedPreprocessorFlags,
+            args.exportedPlatformPreprocessorFlags,
+            args.exportedLangPreprocessorFlags,
+            cxxPlatform);
+    ImmutableMap<Path, SourcePath> exportedHeaders =
+        CxxDescriptionEnhancer.parseExportedHeaders(
+            params.getBuildTarget(),
+            sourcePathResolver,
+            Optional.of(cxxPlatform),
+            args);
+    boolean shouldCreatePrivateHeadersSymlinks = args.xcodePrivateHeadersSymlinks.orElse(true);
+    boolean shouldCreatePublicHeadersSymlinks = args.xcodePublicHeadersSymlinks.orElse(true);
+
+    HeaderSymlinkTree headerSymlinkTree =
+        CxxDescriptionEnhancer.requireHeaderSymlinkTree(
+            params,
+            ruleResolver,
+            cxxPlatform,
+            CxxDescriptionEnhancer.parseHeaders(
+                params.getBuildTarget(),
+                sourcePathResolver,
+                Optional.of(cxxPlatform),
+                args),
+            HeaderVisibility.PRIVATE,
+            shouldCreatePrivateHeadersSymlinks);
+
+    Optional<SymlinkTree> sandboxTree = Optional.empty();
+    if (cxxBuckConfig.sandboxSources()) {
+      sandboxTree =
+          CxxDescriptionEnhancer.createSandboxTree(
+              params,
+              ruleResolver,
+              cxxPlatform);
+    }
+
+    ImmutableList<CxxPreprocessorInput> cxxPreprocessorInputFromDependencies =
+        CxxDescriptionEnhancer.collectCxxPreprocessorInput(
+            params,
+            cxxPlatform,
+            CxxFlags.getLanguageFlags(
+                args.preprocessorFlags,
+                args.platformPreprocessorFlags,
+                args.langPreprocessorFlags,
+                cxxPlatform),
+            ImmutableList.of(headerSymlinkTree),
+            ImmutableSet.of(),
+            getTransitiveCxxPreprocessorInput(
+                params,
+                ruleResolver,
+                cxxPlatform,
+                exportedPreprocessorFlags,
+                exportedHeaders,
+                args.frameworks,
+                shouldCreatePublicHeadersSymlinks),
+            args.includeDirs,
+            sandboxTree);
+
+    // Create rule to build the object files.
+    return CxxSourceRuleFactory.requirePreprocessAndCompileRules(
+        params,
+        ruleResolver,
+        sourcePathResolver,
+        ruleFinder,
+        cxxBuckConfig,
+        cxxPlatform,
+        cxxPreprocessorInputFromDependencies,
+        CxxFlags.getLanguageFlags(
+            args.compilerFlags,
+            args.platformCompilerFlags,
+            args.langCompilerFlags,
+            cxxPlatform),
+        args.prefixHeader,
+        args.precompiledHeader,
+        CxxDescriptionEnhancer.parseCxxSources(
+            params.getBuildTarget(),
+            sourcePathResolver,
+            cxxPlatform,
+            args),
+        pic,
+        sandboxTree);
+  }
+
   public static ImmutableCollection<CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
@@ -221,7 +316,7 @@ public class CxxLibraryDescription implements
 
     // Create rules for compiling the PIC object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
-        CxxDescriptionEnhancer.requireObjects(
+        requireObjects(
             params,
             ruleResolver,
             pathResolver,
@@ -238,7 +333,7 @@ public class CxxLibraryDescription implements
                 params.getCellRoots(),
                 ruleResolver,
                 Iterables.concat(linkerFlags, exportedLinkerFlags)))
-        .addAllArgs(SourcePathArg.from(pathResolver, objects.values()))
+        .addAllArgs(SourcePathArg.from(objects.values()))
         .setFrameworks(frameworks)
         .setLibraries(libraries)
         .build();
@@ -273,7 +368,7 @@ public class CxxLibraryDescription implements
 
     // Create rules for compiling the PIC object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
-        CxxDescriptionEnhancer.requireObjects(
+        requireObjects(
             params,
             ruleResolver,
             pathResolver,
@@ -326,7 +421,7 @@ public class CxxLibraryDescription implements
                     params.getCellRoots(),
                     ruleResolver,
                     extraLdFlags))
-            .addAllArgs(SourcePathArg.from(pathResolver, objects.values()))
+            .addAllArgs(SourcePathArg.from(objects.values()))
             .setFrameworks(frameworks)
             .setLibraries(libraries)
             .build());
@@ -441,7 +536,7 @@ public class CxxLibraryDescription implements
 
     // Create rules for compiling the object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
-        CxxDescriptionEnhancer.requireObjects(
+        requireObjects(
             params,
             resolver,
             sourcePathResolver,
@@ -465,8 +560,7 @@ public class CxxLibraryDescription implements
               Suppliers.ofInstance(ImmutableSortedSet.of()),
               Suppliers.ofInstance(ImmutableSortedSet.of()),
               params.getProjectFilesystem(),
-              params.getCellRoots()),
-          sourcePathResolver);
+              params.getCellRoots()));
     }
 
     Path staticLibraryPath =
@@ -479,7 +573,6 @@ public class CxxLibraryDescription implements
     return Archive.from(
         staticTarget,
         params,
-        sourcePathResolver,
         ruleFinder,
         cxxPlatform,
         cxxBuckConfig.getArchiveContents(),
@@ -605,14 +698,19 @@ public class CxxLibraryDescription implements
       CxxPlatform cxxPlatform = platform.orElse(defaultCxxPlatform);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
-      return CxxDescriptionEnhancer.createCompilationDatabase(
-          params,
-          resolver,
-          sourcePathResolver,
-          ruleFinder,
-          cxxBuckConfig,
-          cxxPlatform,
-          args);
+      BuildRuleParams paramsWithoutFlavor = params.withoutFlavor(
+          CxxCompilationDatabase.COMPILATION_DATABASE);
+      ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
+          requireObjects(
+              paramsWithoutFlavor,
+              resolver,
+              sourcePathResolver,
+              ruleFinder,
+              cxxBuckConfig,
+              cxxPlatform,
+              CxxSourceRuleFactory.PicType.PIC,
+              args);
+      return CxxCompilationDatabase.createCompilationDatabase(params, objects.keySet());
     } else if (params.getBuildTarget().getFlavors()
         .contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)) {
       return CxxDescriptionEnhancer.createUberCompilationDatabase(
@@ -655,7 +753,6 @@ public class CxxLibraryDescription implements
       return CxxInferEnhancer.requireInferCaptureAggregatorBuildRuleForCxxDescriptionArg(
           params,
           resolver,
-          new SourcePathResolver(new SourcePathRuleFinder(resolver)),
           cxxBuckConfig,
           platform.orElse(defaultCxxPlatform),
           args,
@@ -757,7 +854,6 @@ public class CxxLibraryDescription implements
     return new CxxLibrary(
         params,
         resolver,
-        pathResolver,
         FluentIterable.from(args.exportedDeps)
             .transform(resolver::getRule),
         hasExportedHeaders,

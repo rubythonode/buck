@@ -86,7 +86,7 @@ public class WorkspaceAndProjectGenerator {
   private final AppleDependenciesCache dependenciesCache;
   private final XcodeWorkspaceConfigDescription.Arg workspaceArguments;
   private final BuildTarget workspaceBuildTarget;
-  private final ImmutableSet<UnflavoredBuildTarget> focusModules;
+  private final Optional<ImmutableSet<UnflavoredBuildTarget>> focusModules;
   private final ImmutableSet<ProjectGenerator.Option> projectGeneratorOptions;
   private final boolean combinedProject;
   private final boolean buildWithBuck;
@@ -119,7 +119,7 @@ public class WorkspaceAndProjectGenerator {
       boolean combinedProject,
       boolean buildWithBuck,
       ImmutableList<String> buildWithBuckFlags,
-      ImmutableSet<UnflavoredBuildTarget> focusModules,
+      Optional<ImmutableSet<UnflavoredBuildTarget>> focusModules,
       boolean parallelizeBuild,
       ExecutableFinder executableFinder,
       ImmutableMap<String, String> environment,
@@ -155,13 +155,17 @@ public class WorkspaceAndProjectGenerator {
     this.cxxBuckConfig = cxxBuckConfig;
     this.appleConfig = appleConfig;
 
-    ImmutableSet.Builder<UnflavoredBuildTarget> builder = ImmutableSet.builder();
-    builder.addAll(focusModules);
-    // Add the main target only if focusModules is actually used.
-    if (!focusModules.isEmpty() && workspaceArguments.srcTarget.isPresent()) {
-      builder.add(workspaceArguments.srcTarget.get().getUnflavoredBuildTarget());
+    if (focusModules.isPresent()) {
+      ImmutableSet.Builder<UnflavoredBuildTarget> builder = ImmutableSet.builder();
+      builder.addAll(focusModules.get());
+      // Add the main target.
+      if (workspaceArguments.srcTarget.isPresent()) {
+        builder.add(workspaceArguments.srcTarget.get().getUnflavoredBuildTarget());
+      }
+      this.focusModules = Optional.of(builder.build());
+    } else {
+      this.focusModules = Optional.empty();
     }
-    this.focusModules = builder.build();
   }
 
   @VisibleForTesting
@@ -385,7 +389,8 @@ public class WorkspaceAndProjectGenerator {
                         projectCell,
                         projectDirectory,
                         rules,
-                        isMainProject);
+                        isMainProject,
+                        targetsInRequiredProjects);
                   // convert the projectPath to relative to the target cell here
                   result = GenerationResult.of(
                       relativeTargetCell.resolve(result.getProjectPath()),
@@ -434,7 +439,9 @@ public class WorkspaceAndProjectGenerator {
       Cell projectCell,
       Path projectDirectory,
       final ImmutableSet<BuildTarget> rules,
-      boolean isMainProject) throws IOException {
+      boolean isMainProject,
+      ImmutableSet<BuildTarget> targetsInRequiredProjects
+  ) throws IOException {
     boolean shouldGenerateProjects = false;
     ProjectGenerator generator;
     synchronized (projectGenerators) {
@@ -471,6 +478,7 @@ public class WorkspaceAndProjectGenerator {
             buildWithBuckFlags,
             isMainProject,
             workspaceArguments.srcTarget,
+            targetsInRequiredProjects,
             focusModules,
             executableFinder,
             environment,
@@ -527,6 +535,7 @@ public class WorkspaceAndProjectGenerator {
         buildWithBuckFlags,
         true,
         workspaceArguments.srcTarget,
+        targetsInRequiredProjects,
         focusModules,
         executableFinder,
         environment,
@@ -752,6 +761,9 @@ public class WorkspaceAndProjectGenerator {
             continue;
           }
           for (BuildTarget explicitTestTarget : ((HasTests) node.getConstructorArg()).getTests()) {
+            if (!explicitTestTarget.matchesUnflavoredTargets(focusModules)) {
+              continue;
+            }
             Optional<TargetNode<?, ?>> explicitTestNode =
                 targetGraph.getOptional(explicitTestTarget);
             if (explicitTestNode.isPresent()) {
@@ -885,8 +897,7 @@ public class WorkspaceAndProjectGenerator {
       String schemeName = schemeConfigEntry.getKey();
       XcodeWorkspaceConfigDescription.Arg schemeConfigArg = schemeConfigEntry.getValue();
       if (schemeConfigArg.srcTarget.isPresent() &&
-          !ProjectGenerator.shouldIncludeBuildTargetIntoFocusedProject(
-            focusModules, schemeConfigArg.srcTarget.get())) {
+          !schemeConfigArg.srcTarget.get().matchesUnflavoredTargets(focusModules)) {
         continue;
       }
       Iterable<PBXTarget> orderedBuildTargets = schemeNameToSrcTargetNode.get(schemeName).stream()

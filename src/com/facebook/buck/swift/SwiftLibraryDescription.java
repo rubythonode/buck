@@ -242,7 +242,6 @@ public class SwiftLibraryDescription implements
           cxxPlatform,
           swiftBuckConfig,
           params,
-          new SourcePathResolver(new SourcePathRuleFinder(resolver)),
           swiftPlatform.get().getSwift(),
           args.frameworks,
           args.moduleName.orElse(buildTarget.getShortName()),
@@ -260,7 +259,6 @@ public class SwiftLibraryDescription implements
     return new SwiftLibrary(
         params,
         resolver,
-        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         ImmutableSet.of(),
         swiftPlatformFlavorDomain,
         args.frameworks,

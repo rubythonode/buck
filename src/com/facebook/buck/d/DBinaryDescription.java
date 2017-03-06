@@ -111,8 +111,7 @@ public class DBinaryDescription implements
     // Create a Tool for the executable.
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
     executableBuilder.addArg(
-        new SourcePathArg(
-            pathResolver,
+        SourcePathArg.of(
             nativeLinkable.getSourcePathToOutput()));
 
     // Return a BinaryBuildRule implementation, so that this works
@@ -122,7 +121,7 @@ public class DBinaryDescription implements
             Suppliers.ofInstance(ImmutableSortedSet.of(nativeLinkable))),
         ruleFinder,
         executableBuilder.build(),
-        nativeLinkable.getPathToOutput());
+        nativeLinkable.getSourcePathToOutput());
   }
 
   @Override

@@ -102,7 +102,7 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.AndroidReactNativeLibraryDescription;
 import com.facebook.buck.js.IosReactNativeLibraryDescription;
-import com.facebook.buck.js.JsFileDescription;
+import com.facebook.buck.js.JsLibraryDescription;
 import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.jvm.groovy.GroovyBuckConfig;
 import com.facebook.buck.jvm.groovy.GroovyLibraryDescription;
@@ -431,24 +431,27 @@ public class KnownBuildRuleTypes {
     // Add platforms for each cxx flavor obtained from the buck config files
     // from sections of the form cxx#{flavor name}.
     // These platforms are overrides for existing system platforms.
-    ImmutableList<ImmutableFlavor> possibleHostFlavors = CxxPlatforms.getAllPossibleHostFlavors();
+    ImmutableSet<Flavor> possibleHostFlavors = CxxPlatforms.getAllPossibleHostFlavors();
     HashMap<Flavor, CxxPlatform> cxxOverridePlatformsMap =
         new HashMap<Flavor, CxxPlatform>(cxxSystemPlatformsMap);
     ImmutableSet<Flavor> cxxFlavors = CxxBuckConfig.getCxxFlavors(config);
     for (Flavor flavor: cxxFlavors) {
-      if (!cxxSystemPlatformsMap.containsKey(flavor)) {
+      CxxPlatform baseCxxPlatform = cxxSystemPlatformsMap.get(flavor);
+      if (baseCxxPlatform == null) {
         if (possibleHostFlavors.contains(flavor)) {
           // If a flavor is for an alternate host, it's safe to skip.
           continue;
         }
-        LOG.warn("Could not find platform for which overrides were specified: " + flavor);
+        LOG.info("Applying \"%s\" overrides to default host platform", flavor);
+        baseCxxPlatform = defaultHostCxxPlatform;
       }
-
-      cxxOverridePlatformsMap.put(flavor, CxxPlatforms.copyPlatformWithFlavorAndConfig(
-          cxxOverridePlatformsMap.get(flavor),
-          platform,
-          new CxxBuckConfig(config, flavor),
-          flavor));
+      cxxOverridePlatformsMap.put(
+          flavor,
+          CxxPlatforms.copyPlatformWithFlavorAndConfig(
+              baseCxxPlatform,
+              platform,
+              new CxxBuckConfig(config, flavor),
+              flavor));
     }
 
     // Finalize our "default" host.
@@ -627,6 +630,7 @@ public class KnownBuildRuleTypes {
             proGuardConfig,
             ndkCxxPlatforms,
             dxExecutorService,
+            config,
             cxxBuckConfig));
     builder.register(new AndroidBuildConfigDescription(defaultJavacOptions));
     builder.register(
@@ -741,7 +745,7 @@ public class KnownBuildRuleTypes {
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
             defaultCxxPlatform));
-    builder.register(new JsFileDescription());
+    builder.register(new JsLibraryDescription());
     builder.register(new KeystoreDescription());
     builder.register(new KotlinLibraryDescription(kotlinBuckConfig, defaultJavacOptions));
     builder.register(

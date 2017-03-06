@@ -20,6 +20,8 @@ import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.util.sha1.Sha1HashCode;
@@ -28,7 +30,6 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -190,11 +191,17 @@ public class GuavaRuleKeyHasher implements RuleKeyHasher<HashCode> {
   }
 
   @Override
-  public RuleKeyHasher<HashCode> putBuildTargetSourcePath(BuildTargetSourcePath targetSourcePath) {
+  public RuleKeyHasher<HashCode> putBuildTargetSourcePath(
+      BuildTargetSourcePath<?> targetSourcePath) {
     this.putBuildTarget(TYPE_TARGET_SOURCE_PATH, targetSourcePath.getTarget());
-    Optional<Path> resolvedPath = targetSourcePath.getResolvedPath();
-    if (resolvedPath.isPresent()) {
-      this.putStringified(TYPE_TARGET_SOURCE_PATH, resolvedPath.get().toString());
+    if (targetSourcePath instanceof ExplicitBuildTargetSourcePath) {
+      this.putStringified(
+          TYPE_TARGET_SOURCE_PATH,
+          ((ExplicitBuildTargetSourcePath) targetSourcePath).getResolvedPath().toString());
+    } else if (targetSourcePath instanceof ForwardingBuildTargetSourcePath) {
+      this.putStringified(
+          TYPE_TARGET_SOURCE_PATH,
+          ((ForwardingBuildTargetSourcePath) targetSourcePath).getDelegate().toString());
     }
     return this;
   }

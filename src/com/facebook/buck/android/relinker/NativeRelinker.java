@@ -68,8 +68,8 @@ public class NativeRelinker {
   private final ImmutableMap<Pair<TargetCpuType, String>, SourcePath> relinkedLibs;
   private final ImmutableMap<Pair<TargetCpuType, String>, SourcePath> relinkedLibsAssets;
   private final SourcePathRuleFinder ruleFinder;
-  private ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms;
-  private ImmutableList<RelinkerRule> rules;
+  private final ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms;
+  private final ImmutableList<RelinkerRule> rules;
 
   public NativeRelinker(
       BuildRuleParams buildRuleParams,
@@ -161,7 +161,7 @@ public class NativeRelinker {
     for (Pair<TargetCpuType, SourcePath> p : sortedPaths) {
       TargetCpuType cpuType = p.getFirst();
       SourcePath source = p.getSecond();
-      BuildRule baseRule = ruleFinder.getRuleOrThrow((BuildTargetSourcePath) source);
+      BuildRule baseRule = ruleFinder.getRuleOrThrow((BuildTargetSourcePath<?>) source);
       // Relinking this library must keep any of the symbols needed by the libraries from the rules
       // in relinkerDeps.
       ImmutableList<RelinkerRule> relinkerDeps =

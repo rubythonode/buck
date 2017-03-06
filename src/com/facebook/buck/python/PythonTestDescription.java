@@ -251,7 +251,6 @@ public class PythonTestDescription implements
         PythonUtil.getAllComponents(
             params,
             resolver,
-            pathResolver,
             ruleFinder,
             testComponents,
             pythonPlatform,
@@ -272,7 +271,6 @@ public class PythonTestDescription implements
         binaryDescription.createPackageRule(
             params.copyWithBuildTarget(getBinaryBuildTarget(params.getBuildTarget())),
             resolver,
-            pathResolver,
             ruleFinder,
             pythonPlatform,
             cxxPlatform,
@@ -320,7 +318,6 @@ public class PythonTestDescription implements
         }
     }
 
-    // Supplier which expands macros in the passed in test environment.
     Supplier<ImmutableMap<String, String>> testEnv =
         () -> ImmutableMap.copyOf(
             Maps.transformValues(

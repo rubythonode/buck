@@ -24,10 +24,9 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
@@ -80,7 +79,6 @@ public class ShTestDescription implements
       BuildRuleResolver resolver,
       A args) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     Function<String, com.facebook.buck.rules.args.Arg> toArg =
         MacroArg.toMacroArgFunction(
             MACRO_HANDLER,
@@ -101,13 +99,12 @@ public class ShTestDescription implements
             () -> FluentIterable.from(testArgs)
                 .append(testEnv.values())
                 .transformAndConcat(arg -> arg.getDeps(ruleFinder))),
-        pathResolver,
         ruleFinder,
         args.test,
         testArgs,
         testEnv,
         FluentIterable.from(args.resources)
-            .transform(SourcePaths.toSourcePath(params.getProjectFilesystem()))
+            .transform(p -> new PathSourcePath(params.getProjectFilesystem(), p))
             .toSortedSet(Ordering.natural()),
         args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
         args.runTestSeparately.orElse(false),

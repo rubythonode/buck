@@ -18,6 +18,10 @@ package com.facebook.buck.jvm.java.abi;
 
 import com.facebook.buck.io.ProjectFilesystem;
 
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.InnerClassNode;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,16 +31,16 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
 
+import javax.annotation.Nullable;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
 
 public class StubJar {
-  private final Supplier<LibraryReader<ClassMirror>> libraryReaderSupplier;
+  private final Supplier<LibraryReader> libraryReaderSupplier;
 
   public StubJar(Path toMirror) {
-    libraryReaderSupplier = () ->
-        new StubbingLibraryReader<>(LibraryReader.of(toMirror), BytecodeStubber::createStub);
+    libraryReaderSupplier = () -> LibraryReader.of(toMirror);
   }
 
   /**
@@ -47,11 +51,7 @@ public class StubJar {
       SourceVersion targetVersion,
       Elements elements,
       Iterable<TypeElement> topLevelTypes) {
-    ClassVisitorDriverFromElement driver =
-        new ClassVisitorDriverFromElement(targetVersion, elements);
-    libraryReaderSupplier = () -> new StubbingLibraryReader<>(
-        LibraryReader.of(elements, topLevelTypes),
-        driver::driveVisitor);
+    libraryReaderSupplier = () -> LibraryReader.of(targetVersion, elements, topLevelTypes);
   }
 
   public void writeTo(ProjectFilesystem filesystem, Path path) throws IOException {
@@ -61,7 +61,7 @@ public class StubJar {
   }
 
   private void writeTo(StubJarWriter writer) throws IOException {
-    try (LibraryReader<ClassMirror> input = libraryReaderSupplier.get()) {
+    try (LibraryReader input = libraryReaderSupplier.get()) {
       List<Path> paths = new ArrayList<>(input.getRelativePaths());
       Collections.sort(paths);
 
@@ -71,8 +71,9 @@ public class StubJar {
             writer.writeResource(path, resourceContents);
           }
         } else if (input.isClass(path)) {
-          ClassMirror stub = input.openClass(path);
-          if (!stub.isAnonymousOrLocalClass()) {
+          ClassNode stub = new ClassNode(Opcodes.ASM5);
+          input.visitClass(path, new AbiFilteringClassVisitor(stub));
+          if (!isAnonymousOrLocalClass(stub)) {
             writer.writeClass(path, stub);
           }
         }
@@ -80,7 +81,27 @@ public class StubJar {
     }
   }
 
-  private boolean isStubbableResource(LibraryReader<?> input, Path path) {
+  private static boolean isAnonymousOrLocalClass(ClassNode node) {
+    InnerClassNode innerClass = getInnerClassMetadata(node);
+    if (innerClass == null) {
+      return false;
+    }
+
+    return innerClass.outerName == null;
+  }
+
+  @Nullable
+  private static InnerClassNode getInnerClassMetadata(ClassNode node) {
+    for (InnerClassNode innerClass : node.innerClasses) {
+      if (innerClass.name.equals(node.name)) {
+        return innerClass;
+      }
+    }
+
+    return null;
+  }
+
+  private boolean isStubbableResource(LibraryReader input, Path path) {
     return input.isResource(path) && !path.endsWith("META-INF" + File.separator + "MANIFEST.MF");
   }
 }

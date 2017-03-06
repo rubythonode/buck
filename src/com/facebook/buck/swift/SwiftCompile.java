@@ -30,15 +30,14 @@ import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -64,8 +63,7 @@ import java.util.Optional;
 /**
  * A build rule which compiles one or more Swift sources into a Swift module.
  */
-class SwiftCompile
-    extends AbstractBuildRuleWithResolver {
+class SwiftCompile extends AbstractBuildRule {
 
   private static final String INCLUDE_FLAG = "-I";
 
@@ -101,7 +99,6 @@ class SwiftCompile
       CxxPlatform cxxPlatform,
       SwiftBuckConfig swiftBuckConfig,
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Tool swiftCompiler,
       ImmutableSet<FrameworkPath> frameworks,
       String moduleName,
@@ -110,7 +107,7 @@ class SwiftCompile
       ImmutableList<String> compilerFlags,
       Optional<Boolean> enableObjcInterop,
       Optional<SourcePath> bridgingHeader) throws NoSuchBuildTargetException {
-    super(params, resolver);
+    super(params);
     this.cxxPlatform = cxxPlatform;
     this.frameworks = frameworks;
     this.swiftBuckConfig = swiftBuckConfig;
@@ -168,7 +165,7 @@ class SwiftCompile
         Iterables.cycle(INCLUDE_FLAG),
         FluentIterable.from(getDeps())
             .filter(SwiftCompile.class)
-            .transform(SourcePaths.getToBuildTargetSourcePath())
+            .transform(SwiftCompile::getSourcePathToOutput)
             .transform(input -> resolver.getAbsolutePath(input).toString())));
 
     Optional<Iterable<String>> configFlags = swiftBuckConfig.getFlags();
@@ -216,8 +213,8 @@ class SwiftCompile
   }
 
   @Override
-  public Path getPathToOutput() {
-    return outputPath;
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), outputPath);
   }
 
   /**
@@ -278,12 +275,8 @@ class SwiftCompile
   ImmutableSet<Arg> getLinkArgs() {
     return ImmutableSet.<Arg>builder()
         .addAll(StringArg.from("-Xlinker", "-add_ast_path"))
-        .add(new SourcePathArg(
-            getResolver(),
-            new BuildTargetSourcePath(getBuildTarget(), modulePath)))
-        .add(new SourcePathArg(
-            getResolver(),
-            new BuildTargetSourcePath(getBuildTarget(), objectPath)))
+        .add(SourcePathArg.of(new ExplicitBuildTargetSourcePath(getBuildTarget(), modulePath)))
+        .add(SourcePathArg.of(new ExplicitBuildTargetSourcePath(getBuildTarget(), objectPath)))
         .build();
   }
 }

@@ -63,27 +63,30 @@ public class CxxPrepareForLinkStep extends CompositeStep {
     LOG.debug("Link command (pwd=%s): %s %s",
         currentCellPath.toString(),
         String.join("", linker.getCommandPrefix(resolver)),
-        String.join(" ", CxxWriteArgsToFileStep.stringify(allArgs, currentCellPath)));
+        String.join(" ", CxxWriteArgsToFileStep.stringify(allArgs, currentCellPath, resolver)));
 
-    CxxWriteArgsToFileStep createArgFileStep = new CxxWriteArgsToFileStep(
+    CxxWriteArgsToFileStep createArgFileStep = CxxWriteArgsToFileStep.create(
         argFilePath,
         hasLinkArgsToSupportFileList ? allArgs.stream()
             .filter(input -> !(input instanceof FileListableLinkerInputArg))
             .collect(MoreCollectors.toImmutableList()) : allArgs,
         Optional.of(Javac.ARGFILES_ESCAPER),
-        currentCellPath);
+        currentCellPath,
+        resolver);
 
     if (!hasLinkArgsToSupportFileList) {
       LOG.verbose("linkerArgsToSupportFileList is empty, filelist feature is not supported");
       return new CxxPrepareForLinkStep(ImmutableList.of(createArgFileStep));
     }
 
-    CxxWriteArgsToFileStep createFileListStep = new CxxWriteArgsToFileStep(
+    CxxWriteArgsToFileStep createFileListStep = CxxWriteArgsToFileStep.create(
         fileListPath,
         allArgs.stream()
             .filter(input -> input instanceof FileListableLinkerInputArg)
             .collect(MoreCollectors.toImmutableList()),
-        Optional.empty(), currentCellPath);
+        Optional.empty(),
+        currentCellPath,
+        resolver);
 
     return new CxxPrepareForLinkStep(ImmutableList.of(createArgFileStep, createFileListStep));
   }

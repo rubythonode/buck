@@ -41,11 +41,11 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -55,6 +55,7 @@ import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -68,7 +69,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 
@@ -383,6 +383,8 @@ public class AppleDescriptions {
     if (assetCatalogDirs.isEmpty()) {
       return Optional.empty();
     }
+    Preconditions.checkNotNull(optimization,
+        "optimization was null even though assetCatalogArgs was not empty");
 
     for (SourcePath assetCatalogDir : assetCatalogDirs) {
       Path baseName = sourcePathResolver.getRelativePath(assetCatalogDir).getFileName();
@@ -507,7 +509,6 @@ public class AppleDescriptions {
                     unstrippedBinaryRule,
                     appleDsym)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         buildRuleForDebugFormat);
     return rule;
   }
@@ -734,11 +735,11 @@ public class AppleDescriptions {
                 BuildRules.toBuildRulesFor(
                     params.getBuildTarget(),
                     resolver,
-                    SourcePaths.filterBuildTargetSourcePaths(
-                        Iterables.concat(
-                            ImmutableList.of(
-                                collectedResources.getAll(),
-                                frameworks)))))
+                    RichStream.from(collectedResources.getAll())
+                        .concat(frameworks.stream())
+                        .filter(BuildTargetSourcePath.class)
+                        .map(BuildTargetSourcePath::getTarget)
+                        .collect(MoreCollectors.toImmutableSet())))
             .addAll(OptionalCompat.asSet(appleDsym))
             .build());
 
@@ -748,7 +749,7 @@ public class AppleDescriptions {
 
     return new AppleBundle(
         bundleParamsWithFlavoredBinaryDep,
-        sourcePathResolver,
+        resolver,
         extension,
         productName,
         infoPlist,

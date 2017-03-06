@@ -107,7 +107,7 @@ public class ThriftCompiler extends AbstractBuildRule {
         new MakeCleanDirectoryStep(getProjectFilesystem(), outputDir),
         new ThriftCompilerStep(
             getProjectFilesystem().getRootPath(),
-            compiler.getEnvironment(),
+            compiler.getEnvironment(context.getSourcePathResolver()),
             ImmutableList.<String>builder()
                 .addAll(compiler.getCommandPrefix(context.getSourcePathResolver()))
                 .addAll(flags)
@@ -123,8 +123,7 @@ public class ThriftCompiler extends AbstractBuildRule {
 
   @Nullable
   @Override
-  public Path getPathToOutput() {
+  public SourcePath getSourcePathToOutput() {
     return null;
   }
-
 }

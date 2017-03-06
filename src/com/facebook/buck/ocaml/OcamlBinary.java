@@ -17,39 +17,37 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.nio.file.Path;
 import java.util.stream.Stream;
 
-public class OcamlBinary extends AbstractBuildRuleWithResolver
-    implements BinaryBuildRule, HasRuntimeDeps {
+public class OcamlBinary extends AbstractBuildRule implements BinaryBuildRule, HasRuntimeDeps {
 
   private final BuildRule binary;
 
-  public OcamlBinary(BuildRuleParams params, SourcePathResolver resolver, BuildRule binary) {
-    super(params, resolver);
+  public OcamlBinary(BuildRuleParams params, BuildRule binary) {
+    super(params);
     this.binary = binary;
   }
 
   @Override
   public Tool getExecutableCommand() {
     return new CommandTool.Builder()
-        .addArg(new SourcePathArg(
-            getResolver(),
+        .addArg(SourcePathArg.of(
             Preconditions.checkNotNull(binary.getSourcePathToOutput())))
         .build();
   }
@@ -62,8 +60,10 @@ public class OcamlBinary extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public Path getPathToOutput() {
-    return Preconditions.checkNotNull(binary.getPathToOutput());
+  public SourcePath getSourcePathToOutput() {
+    return new ForwardingBuildTargetSourcePath(
+        getBuildTarget(),
+        Preconditions.checkNotNull(binary.getSourcePathToOutput()));
   }
 
   // Since this rule doesn't actual generate the binary it references, and is just a wrapper for
@@ -72,6 +72,5 @@ public class OcamlBinary extends AbstractBuildRuleWithResolver
   public Stream<BuildTarget> getRuntimeDeps() {
     return Stream.of(binary.getBuildTarget());
   }
-
 }
 

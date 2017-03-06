@@ -31,7 +31,6 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
@@ -98,7 +97,6 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
    */
   private Iterable<Arg> getStaticLinkArgs(
       BuildTarget target,
-      SourcePathResolver pathResolver,
       ImmutableList<SourcePath> libs,
       ImmutableList<String> args) {
     ImmutableList.Builder<Arg> builder = ImmutableList.builder();
@@ -114,9 +112,9 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
         if (index < 0 || index >= libs.size()) {
           throw new HumanReadableException("%s: ", target);
         }
-        builder.add(new SourcePathArg(pathResolver, libs.get(index)));
+        builder.add(SourcePathArg.of(libs.get(index)));
       } else {
-        builder.add(new StringArg(arg));
+        builder.add(StringArg.of(arg));
       }
     }
     return builder.build();
@@ -128,7 +126,6 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
    */
   private Iterable<Arg> getSharedLinkArgs(
       BuildTarget target,
-      SourcePathResolver pathResolver,
       ImmutableMap<String, SourcePath> libs,
       ImmutableList<String> args) {
     ImmutableList.Builder<Arg> builder = ImmutableList.builder();
@@ -146,7 +143,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
         }
         Arg libArg;
         if (libRef.get().getFirst().equals(LIB_MACRO)) {
-          libArg = new SourcePathArg(pathResolver, lib);
+          libArg = SourcePathArg.of(lib);
         } else if (libRef.get().getFirst().equals(REL_LIB_MACRO)) {
           if (!(lib instanceof PathSourcePath)) {
             throw new HumanReadableException(
@@ -159,7 +156,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
         }
         builder.add(libArg);
       } else {
-        builder.add(new StringArg(arg));
+        builder.add(StringArg.of(arg));
       }
     }
     return builder.build();
@@ -172,8 +169,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
       final BuildRuleResolver resolver,
       final A args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-    return new CustomPrebuiltCxxLibrary(params, pathResolver) {
+    return new CustomPrebuiltCxxLibrary(params) {
 
       private final LoadingCache<
           CxxPreprocessables.CxxPreprocessorInputCacheKey,
@@ -271,7 +267,6 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
             builder.addAllArgs(
                 getStaticLinkArgs(
                     getBuildTarget(),
-                    pathResolver,
                     CxxGenruleDescription.fixupSourcePaths(
                         resolver,
                         ruleFinder,
@@ -283,7 +278,6 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
             builder.addAllArgs(
                 getStaticLinkArgs(
                     getBuildTarget(),
-                    pathResolver,
                     CxxGenruleDescription.fixupSourcePaths(
                         resolver,
                         ruleFinder,
@@ -295,7 +289,6 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
             builder.addAllArgs(
                 getSharedLinkArgs(
                     getBuildTarget(),
-                    pathResolver,
                     CxxGenruleDescription.fixupSourcePaths(
                         resolver,
                         ruleFinder,
@@ -372,10 +365,8 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
   private abstract static class CustomPrebuiltCxxLibrary
       extends NoopBuildRule
       implements AbstractCxxLibrary {
-    public CustomPrebuiltCxxLibrary(
-        BuildRuleParams params,
-        SourcePathResolver resolver) {
-      super(params, resolver);
+    public CustomPrebuiltCxxLibrary(BuildRuleParams params) {
+      super(params);
     }
   }
 

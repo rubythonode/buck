@@ -17,12 +17,13 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -46,11 +47,10 @@ import java.nio.file.Path;
  * A {@link com.facebook.buck.rules.BuildRule} which builds an "ar" archive from input files
  * represented as {@link com.facebook.buck.rules.SourcePath}.
  */
-public class Archive extends AbstractBuildRuleWithResolver implements SupportsInputBasedRuleKey {
+public class Archive extends AbstractBuildRule implements SupportsInputBasedRuleKey {
 
   @AddToRuleKey
   private final Archiver archiver;
-  private final SourcePathResolver pathResolver;
   @AddToRuleKey
   private ImmutableList<String> archiverFlags;
   @AddToRuleKey
@@ -66,7 +66,6 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
 
   private Archive(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       Archiver archiver,
       ImmutableList<String> archiverFlags,
       Tool ranlib,
@@ -74,8 +73,7 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
       Contents contents,
       Path output,
       ImmutableList<SourcePath> inputs) {
-    super(params, resolver);
-    this.pathResolver = resolver;
+    super(params);
     Preconditions.checkState(
         contents == Contents.NORMAL || archiver.supportsThinArchives(),
         "%s: archive tool for this platform does not support thin archives",
@@ -95,7 +93,6 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
   public static Archive from(
       BuildTarget target,
       BuildRuleParams baseParams,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       CxxPlatform platform,
       Contents contents,
@@ -104,7 +101,6 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
     return from(
         target,
         baseParams,
-        resolver,
         ruleFinder,
         platform.getAr(),
         platform.getArflags(),
@@ -124,7 +120,6 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
   public static Archive from(
       BuildTarget target,
       BuildRuleParams baseParams,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       Archiver archiver,
       ImmutableList<String> arFlags,
@@ -148,7 +143,6 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
 
     return new Archive(
         archiveParams,
-        resolver,
         archiver,
         arFlags,
         ranlib,
@@ -185,7 +179,7 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
         new RmStep(getProjectFilesystem(), output),
         new ArchiveStep(
             getProjectFilesystem(),
-            archiver.getEnvironment(),
+            archiver.getEnvironment(resolver),
             archiver.getCommandPrefix(resolver),
             archiverFlags,
             archiver.getArchiveOptions(contents == Contents.THIN),
@@ -199,7 +193,7 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
       builder.add(
           new RanlibStep(
               getProjectFilesystem(),
-              ranlib.getEnvironment(),
+              ranlib.getEnvironment(resolver),
               ranlib.getCommandPrefix(resolver),
               ranlibFlags,
               output));
@@ -220,13 +214,13 @@ public class Archive extends AbstractBuildRuleWithResolver implements SupportsIn
   public Arg toArg() {
     SourcePath archive = getSourcePathToOutput();
     return contents == Contents.NORMAL ?
-        new SourcePathArg(pathResolver, archive) :
-        ThinArchiveArg.of(pathResolver, archive, inputs);
+        SourcePathArg.of(archive) :
+        ThinArchiveArg.of(archive, inputs);
   }
 
   @Override
-  public Path getPathToOutput() {
-    return output;
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
   }
 
   public Contents getContents() {

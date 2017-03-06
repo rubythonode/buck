@@ -31,7 +31,6 @@ import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.util.MoreCollectors;
@@ -52,49 +51,51 @@ public class DefaultWorkerTool extends NoopBuildRule implements
   @AddToRuleKey
   private final ImmutableList<Arg> args;
   @AddToRuleKey
+  @SuppressWarnings("PMD.UnusedPrivateField")
   private final ImmutableMap<String, String> env;
 
   private final BinaryBuildRule exe;
   private final int maxWorkers;
   private final boolean isPersistent;
   private final BuildOutputInitializer<Data> buildOutputInitializer;
+  private final Tool tool;
 
   protected DefaultWorkerTool(
       BuildRuleParams ruleParams,
-      SourcePathResolver resolver,
       BinaryBuildRule exe,
       ImmutableList<Arg> args,
       ImmutableMap<String, String> env,
       int maxWorkers,
       boolean isPersistent) {
-    super(ruleParams, resolver);
+    super(ruleParams);
     this.exe = exe;
     this.args = args;
     this.env = env;
     this.maxWorkers = maxWorkers;
     this.isPersistent = isPersistent;
     this.buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
-  }
-
-  @Override
-  public Tool getTool() {
     Tool baseTool = this.exe.getExecutableCommand();
     CommandTool.Builder builder = new CommandTool.Builder(baseTool)
         .addInputs(
             this.getDeps().stream()
-                .map(SourcePaths.getToBuildTargetSourcePath()::apply)
+                .map(BuildRule::getSourcePathToOutput)
                 .collect(MoreCollectors.toImmutableList()));
     for (Map.Entry<String, String> e : env.entrySet()) {
       builder.addEnv(e.getKey(), e.getValue());
     }
-    return builder.build();
+    tool = builder.build();
   }
 
   @Override
-  public String getArgs() {
+  public Tool getTool() {
+    return tool;
+  }
+
+  @Override
+  public String getArgs(SourcePathResolver pathResolver) {
     ImmutableList.Builder<String> command = ImmutableList.builder();
     for (Arg arg : args) {
-      arg.appendToCommandLine(command);
+      arg.appendToCommandLine(command, pathResolver);
     }
     return Joiner.on(' ').join(command.build());
   }

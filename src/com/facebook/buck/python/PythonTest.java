@@ -28,8 +28,10 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
+import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
@@ -66,6 +68,7 @@ public class PythonTest
   private final Supplier<ImmutableSortedSet<BuildRule>> originalDeclaredDeps;
   @AddToRuleKey
   private final Supplier<ImmutableMap<String, String>> env;
+  @AddToRuleKey
   private final PythonBinary binary;
   private final ImmutableSet<Label> labels;
   private final Optional<Long> testRuleTimeoutMs;
@@ -76,8 +79,8 @@ public class PythonTest
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       Supplier<ImmutableSortedSet<BuildRule>> originalDeclaredDeps,
-      final Supplier<ImmutableMap<String, String>> env,
-      final PythonBinary binary,
+      Supplier<ImmutableMap<String, String>> env,
+      PythonBinary binary,
       ImmutableSet<Label> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
@@ -96,8 +99,8 @@ public class PythonTest
   public static PythonTest from(
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
-      final Supplier<ImmutableMap<String, String>> env,
-      final PythonBinary binary,
+      Supplier<ImmutableMap<String, String>> env,
+      PythonBinary binary,
       ImmutableSet<Label> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
@@ -108,13 +111,7 @@ public class PythonTest
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         ruleFinder,
         params.getDeclaredDeps(),
-        Suppliers.memoize(
-            () -> {
-              ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-              environment.putAll(binary.getExecutableCommand().getEnvironment());
-              environment.putAll(env.get());
-              return environment.build();
-            }),
+        env,
         binary,
         labels,
         neededCoverage,
@@ -130,8 +127,8 @@ public class PythonTest
   }
 
   @Override
-  public Path getPathToOutput() {
-    return binary.getPathToOutput();
+  public SourcePath getSourcePathToOutput() {
+    return new ForwardingBuildTargetSourcePath(getBuildTarget(), binary.getSourcePathToOutput());
   }
 
   @Override
@@ -146,10 +143,17 @@ public class PythonTest
             getProjectFilesystem().getRootPath(),
             getBuildTarget().getFullyQualifiedName(),
             binary.getExecutableCommand().getCommandPrefix(pathResolver),
-            env,
+            getMergedEnv(pathResolver),
             options.getTestSelectorList(),
             testRuleTimeoutMs,
             getProjectFilesystem().resolve(getPathToTestOutputResult())));
+  }
+
+  private ImmutableMap<String, String> getMergedEnv(SourcePathResolver pathResolver) {
+    return new ImmutableMap.Builder<String, String>()
+        .putAll(binary.getExecutableCommand().getEnvironment(pathResolver))
+        .putAll(env.get())
+        .build();
   }
 
   @Override
@@ -247,10 +251,9 @@ public class PythonTest
         .setType("pyunit")
         .setNeededCoverage(neededCoverage)
         .addAllCommand(binary.getExecutableCommand().getCommandPrefix(pathResolver))
-        .putAllEnv(env.get())
+        .putAllEnv(getMergedEnv(pathResolver))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
         .build();
   }
-
 }

@@ -22,6 +22,7 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
@@ -67,7 +68,7 @@ public class GoTestMain extends AbstractBuildRule {
         new MkdirStep(getProjectFilesystem(), output.getParent()),
         new GoTestMainStep(
             getProjectFilesystem().getRootPath(),
-            testMainGen.getEnvironment(),
+            testMainGen.getEnvironment(context.getSourcePathResolver()),
             testMainGen.getCommandPrefix(context.getSourcePathResolver()),
             /* coverageMode */ "",
             /* coverageVariables */ ImmutableMap.of(),
@@ -81,7 +82,7 @@ public class GoTestMain extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutput() {
-    return output;
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
   }
 }

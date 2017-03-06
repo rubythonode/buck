@@ -38,6 +38,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
@@ -65,6 +66,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -100,7 +102,7 @@ public class PythonBinaryDescriptionTest {
             .setSrcs(
                 SourceList.ofUnnamedSources(
                     ImmutableSortedSet.of(
-                        new BuildTargetSourcePath(genruleBuilder.getTarget()))));
+                        new DefaultBuildTargetSourcePath(genruleBuilder.getTarget()))));
     PythonBinaryBuilder binaryBuilder =
         PythonBinaryBuilder.create(BuildTargetFactory.newInstance("//:bin"))
             .setMainModule("main")
@@ -131,7 +133,7 @@ public class PythonBinaryDescriptionTest {
             .build(resolver);
     PythonBinary binary =
         PythonBinaryBuilder.create(BuildTargetFactory.newInstance("//:bin"))
-            .setMain(new BuildTargetSourcePath(genrule.getBuildTarget()))
+            .setMain(genrule.getSourcePathToOutput())
             .build(resolver);
     assertThat(binary.getDeps(), Matchers.hasItem(genrule));
   }
@@ -352,7 +354,7 @@ public class PythonBinaryDescriptionTest {
         binary.getExecutableCommand().getCommandPrefix(pathResolver),
         Matchers.contains(
             executor.toString(),
-            binary.getBinPath().toAbsolutePath().toString()));
+            pathResolver.getAbsolutePath(binary.getSourcePathToOutput()).toString()));
   }
 
   @Test
@@ -369,7 +371,7 @@ public class PythonBinaryDescriptionTest {
         binary.getExecutableCommand().getCommandPrefix(pathResolver),
         Matchers.contains(
             PythonTestUtils.PYTHON_PLATFORM.getEnvironment().getPythonPath().toString(),
-            binary.getBinPath().toAbsolutePath().toString()));
+            pathResolver.getAbsolutePath(binary.getSourcePathToOutput()).toString()));
   }
 
   @Test
@@ -390,10 +392,7 @@ public class PythonBinaryDescriptionTest {
           @Override
           public Tool getPexTool(BuildRuleResolver resolver) {
             return new CommandTool.Builder()
-                .addArg(
-                    new SourcePathArg(
-                        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
-                        new BuildTargetSourcePath(pexTool.getBuildTarget())))
+                .addArg(SourcePathArg.of(pexTool.getSourcePathToOutput()))
                 .build();
           }
         };
@@ -757,15 +756,16 @@ public class PythonBinaryDescriptionTest {
                 cxxBuilder.build(),
                 binaryBuilder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     cxxDepBuilder.build(resolver);
     cxxBuilder.build(resolver);
     PythonBinary binary = binaryBuilder.build(resolver);
     for (SourcePath path : binary.getComponents().getNativeLibraries().values()) {
       CxxLink link =
           resolver.getRuleOptionalWithType(
-              ((BuildTargetSourcePath) path).getTarget(), CxxLink.class).get();
+              ((BuildTargetSourcePath<?>) path).getTarget(), CxxLink.class).get();
       assertThat(
-          Arg.stringify(link.getArgs()),
+          Arg.stringify(link.getArgs(), pathResolver),
           Matchers.hasItem("-flag"));
     }
   }
@@ -993,7 +993,9 @@ public class PythonBinaryDescriptionTest {
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
             new RuleKeyFieldLoader(0),
-            DefaultFileHashCache.createDefaultFileHashCache(rule.getProjectFilesystem()),
+            new StackedFileHashCache(
+                ImmutableList.of(
+                    DefaultFileHashCache.createDefaultFileHashCache(rule.getProjectFilesystem()))),
             new SourcePathResolver(ruleFinder),
             ruleFinder);
     return ruleKeyFactory.build(rule);

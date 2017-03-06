@@ -21,10 +21,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
@@ -35,7 +34,7 @@ import java.nio.file.Path;
 class OcamlStaticLibrary extends NoopBuildRule implements OcamlLibrary {
   private final BuildTarget staticLibraryTarget;
   private final ImmutableList<String> linkerFlags;
-  private final ImmutableList<SourcePath> objFiles;
+  private final ImmutableList<? extends SourcePath> objFiles;
   private final OcamlBuildContext ocamlContext;
   private final BuildRule ocamlLibraryBuild;
   private final ImmutableSortedSet<BuildRule> nativeCompileDeps;
@@ -44,16 +43,15 @@ class OcamlStaticLibrary extends NoopBuildRule implements OcamlLibrary {
 
   public OcamlStaticLibrary(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       BuildRuleParams compileParams,
       ImmutableList<String> linkerFlags,
-      ImmutableList<SourcePath> objFiles,
+      ImmutableList<? extends SourcePath> objFiles,
       OcamlBuildContext ocamlContext,
       BuildRule ocamlLibraryBuild,
       ImmutableSortedSet<BuildRule> nativeCompileDeps,
       ImmutableSortedSet<BuildRule> bytecodeCompileDeps,
       ImmutableSortedSet<BuildRule> bytecodeLinkDeps) {
-    super(params, resolver);
+    super(params);
     this.linkerFlags = linkerFlags;
     this.objFiles = objFiles;
     this.ocamlContext = ocamlContext;
@@ -74,9 +72,8 @@ class OcamlStaticLibrary extends NoopBuildRule implements OcamlLibrary {
     // Add arg and input for static library.
     UnflavoredBuildTarget staticBuildTarget = staticLibraryTarget.getUnflavoredBuildTarget();
     inputBuilder.addArgs(
-        new SourcePathArg(
-            getResolver(),
-            new BuildTargetSourcePath(
+        SourcePathArg.of(
+            new ExplicitBuildTargetSourcePath(
                 ocamlLibraryBuild.getBuildTarget(),
                 isBytecode
                 ? OcamlBuildContext.getBytecodeOutputPath(
@@ -90,7 +87,7 @@ class OcamlStaticLibrary extends NoopBuildRule implements OcamlLibrary {
 
     // Add args and inputs for C object files.
     for (SourcePath objFile : objFiles) {
-      inputBuilder.addArgs(new SourcePathArg(getResolver(), objFile));
+      inputBuilder.addArgs(SourcePathArg.of(objFile));
     }
 
     return inputBuilder.build();

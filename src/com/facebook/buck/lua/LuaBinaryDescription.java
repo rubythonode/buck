@@ -405,7 +405,6 @@ public class LuaBinaryDescription implements
           Omnibus.getSharedLibraries(
               baseParams,
               ruleResolver,
-              pathResolver,
               ruleFinder,
               cxxBuckConfig,
               cxxPlatform,
@@ -675,7 +674,7 @@ public class LuaBinaryDescription implements
       }
 
       @Override
-      public ImmutableMap<String, String> getEnvironment() {
+      public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
         return ImmutableMap.of();
       }
 
@@ -692,7 +691,6 @@ public class LuaBinaryDescription implements
   private Tool getStandaloneBinary(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       SourcePath starter,
       String mainModule,
@@ -725,14 +723,13 @@ public class LuaBinaryDescription implements
                 luaConfig.shouldCacheBinaries()));
 
     return new CommandTool.Builder()
-        .addArg(new SourcePathArg(pathResolver, binary.getSourcePathToOutput()))
+        .addArg(SourcePathArg.of(binary.getSourcePathToOutput()))
         .build();
   }
 
   private Tool getBinary(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      final SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       String mainModule,
@@ -744,7 +741,6 @@ public class LuaBinaryDescription implements
         return getStandaloneBinary(
             params,
             resolver,
-            pathResolver,
             ruleFinder,
             starter,
             mainModule,
@@ -798,7 +794,6 @@ public class LuaBinaryDescription implements
         getBinary(
             params,
             resolver,
-            pathResolver,
             ruleFinder,
             cxxPlatform,
             args.mainModule,

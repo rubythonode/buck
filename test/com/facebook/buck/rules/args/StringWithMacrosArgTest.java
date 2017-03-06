@@ -23,7 +23,6 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeCellPathResolver;
@@ -191,7 +190,7 @@ public class StringWithMacrosArgTest {
             CELL_PATH_RESOLVER,
             resolver);
     assertThat(
-        Arg.stringifyList(noMacrosArg),
+        Arg.stringifyList(noMacrosArg, pathResolver),
         Matchers.equalTo(ImmutableList.of("--test")));
 
     // Test one embedded macros.
@@ -205,13 +204,12 @@ public class StringWithMacrosArgTest {
             CELL_PATH_RESOLVER,
             resolver);
     assertThat(
-        Arg.stringifyList(oneMacrosArg),
+        Arg.stringifyList(oneMacrosArg, pathResolver),
         Matchers.equalTo(
             ImmutableList.of(
                 String.format(
                     "--test=%s",
-                    pathResolver.getAbsolutePath(
-                        new BuildTargetSourcePath(rule1.getBuildTarget()))))));
+                    pathResolver.getAbsolutePath(rule1.getSourcePathToOutput())))));
 
     // Test multiple embedded macros.
     StringWithMacrosArg multipleMacrosArg =
@@ -226,17 +224,14 @@ public class StringWithMacrosArgTest {
             CELL_PATH_RESOLVER,
             resolver);
     assertThat(
-        Arg.stringifyList(multipleMacrosArg),
+        Arg.stringifyList(multipleMacrosArg, pathResolver),
         Matchers.equalTo(
             ImmutableList.of(
                 String.format(
                     "--test=%s --test2=%s --test3=%s",
-                    pathResolver.getAbsolutePath(
-                        new BuildTargetSourcePath(rule1.getBuildTarget())),
-                    pathResolver.getAbsolutePath(
-                        new BuildTargetSourcePath(rule2.getBuildTarget())),
-                    pathResolver.getAbsolutePath(
-                        new BuildTargetSourcePath(rule1.getBuildTarget()))))));
+                    pathResolver.getAbsolutePath(rule1.getSourcePathToOutput()),
+                    pathResolver.getAbsolutePath(rule2.getSourcePathToOutput()),
+                    pathResolver.getAbsolutePath(rule1.getSourcePathToOutput())))));
   }
 
 }

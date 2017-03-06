@@ -28,20 +28,23 @@ import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Function;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -77,9 +80,9 @@ public class JavaLibrarySymbolsFinderTest {
         .addAll(
             Stream.of("Example1.java", "Example2.java")
                 .map(Paths::get)
-                .map(SourcePaths.toSourcePath(projectFilesystem)::apply)
+                .map(p -> new PathSourcePath(projectFilesystem, p))
                 .iterator())
-        .add(new BuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:bar")))
+        .add(new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:bar")))
         .build();
 
     JavaLibrarySymbolsFinder finder = new JavaLibrarySymbolsFinder(
@@ -106,11 +109,11 @@ public class JavaLibrarySymbolsFinderTest {
     final ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
 
     Function<String, SourcePath> convert =
-        src -> SourcePaths.toSourcePath(projectFilesystem).apply(Paths.get(src));
+        src -> new PathSourcePath(projectFilesystem, Paths.get(src));
     SourcePath example1 = convert.apply("Example1.java");
     SourcePath example2 = convert.apply("Example2.java");
     final BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:GenEx.java");
-    SourcePath generated = new BuildTargetSourcePath(fakeBuildTarget);
+    SourcePath generated = new DefaultBuildTargetSourcePath(fakeBuildTarget);
 
     final boolean shouldRecordRequiredSymbols = true;
     JavaLibrarySymbolsFinder example1Finder = new JavaLibrarySymbolsFinder(
@@ -133,7 +136,7 @@ public class JavaLibrarySymbolsFinderTest {
     expect(ruleFinder.getRule(anyObject(SourcePath.class)))
         .andAnswer(() -> {
           SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
-          if (input instanceof BuildTargetSourcePath) {
+          if (input instanceof ExplicitBuildTargetSourcePath) {
             return Optional.of(new FakeBuildRule(fakeBuildTarget, pathResolver));
           } else {
             return Optional.empty();
@@ -143,7 +146,9 @@ public class JavaLibrarySymbolsFinderTest {
 
     // Calculates the RuleKey for a JavaSymbolsRule with the specified JavaLibrarySymbolsFinder.
     final FileHashCache fileHashCache =
-        DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem);
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem)));
     final DefaultRuleKeyFactory ruleKeyFactory = new DefaultRuleKeyFactory(
         0,
         fileHashCache,

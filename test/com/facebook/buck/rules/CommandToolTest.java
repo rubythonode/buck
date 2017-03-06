@@ -52,12 +52,12 @@ public class CommandToolTest {
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setOut("output")
             .build(resolver, filesystem);
-    SourcePath path = new BuildTargetSourcePath(rule.getBuildTarget());
+    SourcePath path = rule.getSourcePathToOutput();
 
     // Test command and inputs for just passing the source path.
     CommandTool tool =
         new CommandTool.Builder()
-            .addArg(new SourcePathArg(pathResolver, path))
+            .addArg(SourcePathArg.of(path))
             .build();
     assertThat(
         tool.getCommandPrefix(pathResolver),
@@ -85,7 +85,7 @@ public class CommandToolTest {
     // Test command and inputs for just passing the source path.
     CommandTool tool =
         new CommandTool.Builder()
-            .addArg(new SourcePathArg(pathResolver, path))
+            .addArg(SourcePathArg.of(path))
             .build();
     assertThat(
         tool.getCommandPrefix(pathResolver),
@@ -98,9 +98,10 @@ public class CommandToolTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-    BuildRule rule = new FakeBuildRule("//some:target", pathResolver);
+    FakeBuildRule rule = new FakeBuildRule("//some:target", pathResolver);
+    rule.setOutputFile("foo");
     ruleResolver.addToIndex(rule);
-    SourcePath path = new BuildTargetSourcePath(rule.getBuildTarget());
+    SourcePath path = rule.getSourcePathToOutput();
 
     CommandTool tool =
         new CommandTool.Builder()
@@ -124,10 +125,10 @@ public class CommandToolTest {
     CommandTool tool =
         new CommandTool.Builder()
             .addArg("runit")
-            .addEnv("PATH", new SourcePathArg(pathResolver, path))
+            .addEnv("PATH", SourcePathArg.of(path))
             .build();
 
-    assertThat(tool.getEnvironment(), Matchers.hasEntry(
+    assertThat(tool.getEnvironment(pathResolver), Matchers.hasEntry(
             Matchers.equalTo("PATH"),
             Matchers.containsString("input")));
   }
@@ -141,7 +142,7 @@ public class CommandToolTest {
     SourcePath path = new FakeSourcePath("input");
     CommandTool tool =
         new CommandTool.Builder()
-            .addArg(new SourcePathArg(pathResolver, path))
+            .addArg(SourcePathArg.of(path))
             .build();
 
     FileHashCache hashCache = FakeFileHashCache.createFromStrings(

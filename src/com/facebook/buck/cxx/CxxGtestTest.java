@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
+import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
@@ -35,6 +36,7 @@ import com.facebook.buck.util.ChunkAccumulator;
 import com.facebook.buck.util.XmlDomParser;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -61,8 +63,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import javax.annotation.Nullable;
-
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunnerRule {
 
@@ -72,7 +72,6 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
 
   private final SourcePathRuleFinder ruleFinder;
   private final BuildRule binary;
-  private final Tool executable;
   private final long maxTestOutputSize;
 
   public CxxGtestTest(
@@ -80,9 +79,9 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
       SourcePathRuleFinder ruleFinder,
       BuildRule binary,
       Tool executable,
-      Supplier<ImmutableMap<String, String>> env,
+      ImmutableMap<String, String> env,
       Supplier<ImmutableList<String>> args,
-      ImmutableSortedSet<SourcePath> resources,
+      ImmutableSortedSet<? extends SourcePath> resources,
       Supplier<ImmutableSortedSet<BuildRule>> additionalDeps,
       ImmutableSet<Label> labels,
       ImmutableSet<String> contacts,
@@ -91,7 +90,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
       long maxTestOutputSize) {
     super(
         params,
-        executable.getEnvironment(),
+        executable,
         env,
         args,
         resources,
@@ -102,28 +101,23 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
         testRuleTimeoutMs);
     this.ruleFinder = ruleFinder;
     this.binary = binary;
-    this.executable = executable;
     this.maxTestOutputSize = maxTestOutputSize;
   }
 
-  @Nullable
   @Override
-  public Path getPathToOutput() {
-    return binary.getPathToOutput();
+  public SourcePath getSourcePathToOutput() {
+    return new ForwardingBuildTargetSourcePath(
+        getBuildTarget(),
+        Preconditions.checkNotNull(binary.getSourcePathToOutput()));
   }
 
   @Override
   protected ImmutableList<String> getShellCommand(SourcePathResolver pathResolver, Path output) {
     return ImmutableList.<String>builder()
-        .addAll(executable.getCommandPrefix(pathResolver))
+        .addAll(getExecutableCommand().getCommandPrefix(pathResolver))
         .add("--gtest_color=no")
         .add("--gtest_output=xml:" + getProjectFilesystem().resolve(output).toString())
         .build();
-  }
-
-  @Override
-  public Tool getExecutableCommand() {
-    return executable;
   }
 
   private TestResultSummary getProgramFailureSummary(
@@ -180,7 +174,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
         } else if (END.matcher(line.trim()).matches()) {
           currentTest = Optional.empty();
         } else if (currentTest.isPresent()) {
-          stdout.get(currentTest.get()).append(line);
+          Preconditions.checkNotNull(stdout.get(currentTest.get())).append(line);
         }
       }
     }
@@ -233,7 +227,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   public Stream<BuildTarget> getRuntimeDeps() {
     return Stream.concat(
         super.getRuntimeDeps(),
-        executable.getDeps(ruleFinder).stream()
+        getExecutableCommand().getDeps(ruleFinder).stream()
             .map(BuildRule::getBuildTarget));
   }
 
@@ -245,12 +239,11 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("gtest")
-        .addAllCommand(executable.getCommandPrefix(pathResolver))
+        .addAllCommand(getExecutableCommand().getCommandPrefix(pathResolver))
         .addAllCommand(getArgs().get())
-        .putAllEnv(getEnv().get())
+        .putAllEnv(getEnv(pathResolver))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
         .build();
   }
-
 }

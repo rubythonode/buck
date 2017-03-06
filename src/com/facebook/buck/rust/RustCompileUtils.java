@@ -32,6 +32,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -105,7 +106,7 @@ public class RustCompileUtils {
     Stream.concat(
         rustConfig.getLinkerArgs(cxxPlatform).stream(),
         extraLinkerFlags.stream())
-        .map(StringArg::new)
+        .map(StringArg::of)
         .forEach(linkerArgs::add);
 
     linkerArgs.addAll(linkerInputs);
@@ -126,7 +127,7 @@ public class RustCompileUtils {
             String.format("-Crelocation-model=%s", relocModel)),
         extraFlags.stream())
         .flatMap(x -> x)
-        .map(StringArg::new)
+        .map(StringArg::of)
         .forEach(args::add);
 
     // Find direct and transitive Rust deps. We do this in two passes, since a dependency that's
@@ -181,7 +182,7 @@ public class RustCompileUtils {
       // XXX currently breaks on paths containing commas, which all of ours do: see
       // https://github.com/rust-lang/rust/issues/38795
       if (rpath && depType == Linker.LinkableDepType.SHARED) {
-        args.add(new StringArg("-Crpath"));
+        args.add(StringArg.of("-Crpath"));
       }
 
       linkerArgs.addAll(nativeArgs);
@@ -191,9 +192,9 @@ public class RustCompileUtils {
       nativeArgs.stream()
           .filter(HasSourcePath.class::isInstance)
           .map(sp -> (HasSourcePath) sp)
-          .map(sp -> sp.getPathResolver().getRelativePath(sp.getPath()).getParent())
+          .map(sp -> pathResolver.getRelativePath(sp.getPath()).getParent())
           .map(dir -> String.format("-Lnative=%s", dir))
-          .map(StringArg::new)
+          .map(StringArg::of)
           .forEach(args::add);
     }
 
@@ -201,7 +202,7 @@ public class RustCompileUtils {
     // dynamic dependencies (esp to get dynamic dependency on standard libs)
     if (depType == Linker.LinkableDepType.SHARED ||
         crateType == CrateType.DYLIB) {
-      args.add(new StringArg("-Cprefer-dynamic"));
+      args.add(StringArg.of("-Cprefer-dynamic"));
     }
 
     String filename = crateType.filenameFor(crateName, cxxPlatform);
@@ -210,7 +211,6 @@ public class RustCompileUtils {
         RustCompileRule.from(
             ruleFinder,
             params.copyWithBuildTarget(target),
-            pathResolver,
             filename,
             rustConfig.getRustCompiler().resolve(resolver),
             rustConfig.getLinkerProvider(cxxPlatform, cxxPlatform.getLd().getType())
@@ -366,7 +366,7 @@ public class RustCompileUtils {
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
     // Add the binary as the first argument.
-    executableBuilder.addArg(new SourcePathArg(pathResolver, buildRule.getSourcePathToOutput()));
+    executableBuilder.addArg(SourcePathArg.of(buildRule.getSourcePathToOutput()));
 
     // Special handling for dynamically linked binaries.
     if (linkStyle == Linker.LinkableDepType.SHARED) {
@@ -418,10 +418,11 @@ public class RustCompileUtils {
       }
 
       @Override
-      public Path getPathToOutput() {
-        return buildRule.getPathToOutput();
+      public SourcePath getSourcePathToOutput() {
+        return new ForwardingBuildTargetSourcePath(
+            getBuildTarget(),
+            buildRule.getSourcePathToOutput());
       }
-
     };
   }
 

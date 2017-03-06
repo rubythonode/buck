@@ -22,7 +22,7 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.OverrideScheduleRule;
 import com.facebook.buck.rules.RuleScheduleInfo;
@@ -122,7 +122,7 @@ public class CxxLink
             context.getSourcePathResolver()),
         new CxxLinkStep(
             getProjectFilesystem().getRootPath(),
-            linker.getEnvironment(),
+            linker.getEnvironment(context.getSourcePathResolver()),
             linker.getCommandPrefix(context.getSourcePathResolver()),
             argFilePath,
             getProjectFilesystem().getRootPath().resolve(scratchDir)),
@@ -148,13 +148,8 @@ public class CxxLink
   }
 
   @Override
-  public Path getPathToOutput() {
-    return output;
-  }
-
-  @Override
   public SourcePath getSourcePathToOutput() {
-    return new BuildTargetSourcePath(getBuildTarget(), output);
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
   }
 
   @Override

@@ -36,7 +36,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -129,8 +128,8 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
         params.getBuildTarget().getUnflavoredBuildTarget();
     for (ImmutableMap.Entry<String, ThriftSource> ent : sources.entrySet()) {
       String name = ent.getKey();
-      BuildRule compilerRule = ent.getValue().getCompileRule();
-      Path sourceDirectory = ent.getValue().getOutputDir().resolve("gen-java");
+      BuildTarget compilerTarget = ent.getValue().getCompileTarget();
+      Path sourceDirectory = ent.getValue().getOutputDir(resolver).resolve("gen-java");
 
       BuildTarget sourceZipTarget = getSourceZipBuildTarget(unflavoredBuildTarget, name);
       Path sourceZip =
@@ -140,7 +139,7 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
           new SrcZip(
               params.copyWithChanges(
                   sourceZipTarget,
-                  Suppliers.ofInstance(ImmutableSortedSet.of(compilerRule)),
+                  Suppliers.ofInstance(ImmutableSortedSet.of(resolver.getRule(compilerTarget))),
                   Suppliers.ofInstance(ImmutableSortedSet.of())),
               sourceZip,
               sourceDirectory));
@@ -169,7 +168,7 @@ public class ThriftJavaEnhancer implements ThriftLanguageSpecificEnhancer {
         pathResolver,
         ruleFinder,
         FluentIterable.from(sourceZips)
-            .transform(SourcePaths.getToBuildTargetSourcePath())
+            .transform(BuildRule::getSourcePathToOutput)
             .toSortedSet(Ordering.natural()),
         /* resources */ ImmutableSet.of(),
         templateOptions.getGeneratedSourceFolderName(),

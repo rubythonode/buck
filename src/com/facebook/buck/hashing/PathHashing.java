@@ -35,7 +35,7 @@ public class PathHashing {
 
   public static ImmutableSet<Path> hashPath(
       Hasher hasher,
-      FileHashLoader fileHashLoader,
+      ProjectFileHashLoader fileHashLoader,
       ProjectFilesystem projectFilesystem,
       Path root) throws IOException {
     Preconditions.checkArgument(
@@ -48,24 +48,9 @@ public class PathHashing {
       if (!root.equals(path)) {
         children.add(root.relativize(path));
       }
-      hasher.putBytes(fileHashLoader.get(projectFilesystem.resolve(path)).asBytes());
+      hasher.putBytes(fileHashLoader.get(path).asBytes());
     }
     return children.build();
-  }
-
-  /**
-   * Iterates recursively over all files under {@code paths}, sorts
-   * the filenames, and updates the {@link Hasher} with the names and
-   * contents of all files inside.
-   */
-  public static void hashPaths(
-      Hasher hasher,
-      FileHashLoader fileHashLoader,
-      ProjectFilesystem projectFilesystem,
-      ImmutableSortedSet<Path> paths) throws IOException {
-    for (Path path : paths) {
-      hashPath(hasher, fileHashLoader, projectFilesystem, path);
-    }
   }
 
 }

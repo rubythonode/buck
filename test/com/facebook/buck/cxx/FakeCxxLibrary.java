@@ -22,11 +22,10 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
@@ -64,7 +63,6 @@ public final class FakeCxxLibrary
 
   public FakeCxxLibrary(
       BuildRuleParams params,
-      SourcePathResolver pathResolver,
       BuildTarget publicHeaderTarget,
       BuildTarget publicHeaderSymlinkTreeTarget,
       BuildTarget privateHeaderTarget,
@@ -74,7 +72,7 @@ public final class FakeCxxLibrary
       Path sharedLibraryOutput,
       String sharedLibrarySoname,
       ImmutableSortedSet<BuildTarget> tests) {
-    super(params, pathResolver);
+    super(params);
     this.publicHeaderTarget = publicHeaderTarget;
     this.publicHeaderSymlinkTreeTarget = publicHeaderSymlinkTreeTarget;
     this.privateHeaderTarget = privateHeaderTarget;
@@ -104,8 +102,8 @@ public final class FakeCxxLibrary
                       .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
                       .putNameToPathMap(
                           Paths.get("header.h"),
-                          new BuildTargetSourcePath(publicHeaderTarget))
-                      .setRoot(new BuildTargetSourcePath(publicHeaderSymlinkTreeTarget))
+                          new DefaultBuildTargetSourcePath(publicHeaderTarget))
+                      .setRoot(new DefaultBuildTargetSourcePath(publicHeaderSymlinkTreeTarget))
                       .build())
               .build();
         case PRIVATE:
@@ -113,10 +111,10 @@ public final class FakeCxxLibrary
               .addIncludes(
                   CxxSymlinkTreeHeaders.builder()
                       .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
-                      .setRoot(new BuildTargetSourcePath(privateHeaderSymlinkTreeTarget))
+                      .setRoot(new DefaultBuildTargetSourcePath(privateHeaderSymlinkTreeTarget))
                       .putNameToPathMap(
                           Paths.get("header.h"),
-                          new BuildTargetSourcePath(privateHeaderTarget))
+                          new DefaultBuildTargetSourcePath(privateHeaderTarget))
                       .build())
               .build();
       }
@@ -154,17 +152,11 @@ public final class FakeCxxLibrary
       Linker.LinkableDepType type) {
     return type == Linker.LinkableDepType.STATIC ?
         NativeLinkableInput.of(
-            ImmutableList.of(
-                new SourcePathArg(
-                    getResolver(),
-                    new BuildTargetSourcePath(archive.getBuildTarget()))),
+            ImmutableList.of(SourcePathArg.of(archive.getSourcePathToOutput())),
             ImmutableSet.of(),
             ImmutableSet.of()) :
         NativeLinkableInput.of(
-            ImmutableList.of(
-                new SourcePathArg(
-                    getResolver(),
-                    new BuildTargetSourcePath(sharedLibrary.getBuildTarget()))),
+            ImmutableList.of(SourcePathArg.of(sharedLibrary.getSourcePathToOutput())),
             ImmutableSet.of(),
             ImmutableSet.of());
   }

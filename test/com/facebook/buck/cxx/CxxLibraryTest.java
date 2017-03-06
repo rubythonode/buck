@@ -25,7 +25,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
@@ -69,17 +69,20 @@ public class CxxLibraryTest {
         "//:privatesymlink");
 
     // Setup some dummy values for the library archive info.
-    final BuildRule archive = new FakeBuildRule("//:archive", pathResolver);
+    final BuildRule archive =
+        new FakeBuildRule("//:archive", pathResolver)
+            .setOutputFile("libarchive.a");
 
     // Setup some dummy values for the library archive info.
-    final BuildRule sharedLibrary = new FakeBuildRule("//:shared", pathResolver);
+    final BuildRule sharedLibrary =
+        new FakeBuildRule("//:shared", pathResolver)
+            .setOutputFile("libshared.so");
     final Path sharedLibraryOutput = Paths.get("output/path/lib.so");
     final String sharedLibrarySoname = "lib.so";
 
     // Construct a CxxLibrary object to test.
     FakeCxxLibrary cxxLibrary = new FakeCxxLibrary(
         params,
-        pathResolver,
         publicHeaderTarget,
         publicHeaderSymlinkTreeTarget,
         privateHeaderTarget,
@@ -98,8 +101,8 @@ public class CxxLibraryTest {
                 .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
                 .putNameToPathMap(
                     Paths.get("header.h"),
-                    new BuildTargetSourcePath(publicHeaderTarget))
-                .setRoot(new BuildTargetSourcePath(publicHeaderSymlinkTreeTarget))
+                    new DefaultBuildTargetSourcePath(publicHeaderTarget))
+                .setRoot(new DefaultBuildTargetSourcePath(publicHeaderSymlinkTreeTarget))
                 .build())
         .build();
     assertEquals(
@@ -112,10 +115,10 @@ public class CxxLibraryTest {
         .addIncludes(
             CxxSymlinkTreeHeaders.builder()
                 .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
-                .setRoot(new BuildTargetSourcePath(privateHeaderSymlinkTreeTarget))
+                .setRoot(new DefaultBuildTargetSourcePath(privateHeaderSymlinkTreeTarget))
                 .putNameToPathMap(
                     Paths.get("header.h"),
-                    new BuildTargetSourcePath(privateHeaderTarget))
+                    new DefaultBuildTargetSourcePath(privateHeaderTarget))
                 .build())
         .build();
     assertEquals(
@@ -127,10 +130,7 @@ public class CxxLibraryTest {
     // Verify that we get the static archive and its build target via the NativeLinkable
     // interface.
     NativeLinkableInput expectedStaticNativeLinkableInput = NativeLinkableInput.of(
-        ImmutableList.of(
-            new SourcePathArg(
-                pathResolver,
-                new BuildTargetSourcePath(archive.getBuildTarget()))),
+        ImmutableList.of(SourcePathArg.of(archive.getSourcePathToOutput())),
         ImmutableSet.of(),
         ImmutableSet.of());
     assertEquals(
@@ -142,10 +142,7 @@ public class CxxLibraryTest {
     // Verify that we get the static archive and its build target via the NativeLinkable
     // interface.
     NativeLinkableInput expectedSharedNativeLinkableInput = NativeLinkableInput.of(
-        ImmutableList.of(
-            new SourcePathArg(
-                pathResolver,
-                new BuildTargetSourcePath(sharedLibrary.getBuildTarget()))),
+        ImmutableList.of(SourcePathArg.of(sharedLibrary.getSourcePathToOutput())),
         ImmutableSet.of(),
         ImmutableSet.of());
     assertEquals(
@@ -180,13 +177,12 @@ public class CxxLibraryTest {
 
 
     FrameworkPath frameworkPath = FrameworkPath.ofSourcePath(
-        new BuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:baz")));
+        new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:baz")));
 
     // Construct a CxxLibrary object to test.
     CxxLibrary cxxLibrary = new CxxLibrary(
         params,
         ruleResolver,
-        pathResolver,
         FluentIterable.from(params.getDeclaredDeps().get()),
         /* hasExportedHeaders */ x -> true,
         /* headerOnly */ x -> true,

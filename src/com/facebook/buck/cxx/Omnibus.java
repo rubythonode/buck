@@ -27,9 +27,8 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -263,7 +262,6 @@ public class Omnibus {
   protected static OmnibusRoot createRoot(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
@@ -320,9 +318,8 @@ public class Omnibus {
       // If this dep is another root node, substitute in the custom linked library we built for it.
       if (spec.getRoots().containsKey(target)) {
         argsBuilder.add(
-            new SourcePathArg(
-                pathResolver,
-                new BuildTargetSourcePath(
+            SourcePathArg.of(
+                new DefaultBuildTargetSourcePath(
                     getRootTarget(params.getBuildTarget(), target))));
         continue;
       }
@@ -331,7 +328,7 @@ public class Omnibus {
       // libomnibus instead.
       if (spec.getBody().containsKey(target)) { // && linkStyle == Linker.LinkableDepType.SHARED) {
         if (!alreadyAddedOmnibusToArgs) {
-          argsBuilder.add(new SourcePathArg(pathResolver, omnibus));
+          argsBuilder.add(SourcePathArg.of(omnibus));
           alreadyAddedOmnibusToArgs = true;
         }
         continue;
@@ -413,7 +410,6 @@ public class Omnibus {
   protected static OmnibusRoot createRoot(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
@@ -425,7 +421,6 @@ public class Omnibus {
     return createRoot(
         params,
         ruleResolver,
-        pathResolver,
         ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
@@ -440,7 +435,6 @@ public class Omnibus {
   protected static OmnibusRoot createDummyRoot(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
@@ -452,7 +446,6 @@ public class Omnibus {
     return createRoot(
         params,
         ruleResolver,
-        pathResolver,
         ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
@@ -467,7 +460,6 @@ public class Omnibus {
   private static ImmutableList<Arg> createUndefinedSymbolsArgs(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends SourcePath> linkerInputs) {
@@ -484,7 +476,6 @@ public class Omnibus {
         .createUndefinedSymbolsLinkerArgs(
             params,
             ruleResolver,
-            pathResolver,
             ruleFinder,
             params.getBuildTarget().withAppendedFlavors(
                 ImmutableFlavor.of("omnibus-undefined-symbols-args")),
@@ -495,7 +486,6 @@ public class Omnibus {
   protected static OmnibusLibrary createOmnibus(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
@@ -526,7 +516,6 @@ public class Omnibus {
         createUndefinedSymbolsArgs(
             params,
             ruleResolver,
-            pathResolver,
             ruleFinder,
             cxxPlatform,
             undefinedSymbolsOnlyRoots));
@@ -542,8 +531,7 @@ public class Omnibus {
       NativeLinkTarget root = spec.getRoots().get(target);
       if (root != null) {
         argsBuilder.add(
-            new SourcePathArg(
-                pathResolver,
+            SourcePathArg.of(
                 ((CxxLink) ruleResolver.requireRule(
                     getRootTarget(
                         params.getBuildTarget(),
@@ -612,7 +600,6 @@ public class Omnibus {
   public static OmnibusLibraries getSharedLibraries(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
@@ -647,7 +634,6 @@ public class Omnibus {
         createDummyRoot(
             params,
             ruleResolver,
-            pathResolver,
             ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
@@ -660,7 +646,6 @@ public class Omnibus {
             createRoot(
                 params,
                 ruleResolver,
-                pathResolver,
                 ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,
@@ -679,7 +664,6 @@ public class Omnibus {
           createOmnibus(
               params,
               ruleResolver,
-              pathResolver,
               ruleFinder,
               cxxBuckConfig,
               cxxPlatform,
@@ -697,7 +681,6 @@ public class Omnibus {
             createRoot(
                 params,
                 ruleResolver,
-                pathResolver,
                 ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,

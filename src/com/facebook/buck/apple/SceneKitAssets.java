@@ -24,6 +24,7 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
@@ -103,8 +104,8 @@ public class SceneKitAssets extends AbstractBuildRule {
 
               @Override
               public ImmutableMap<String, String> getEnvironmentVariables(
-                  ExecutionContext context) {
-                return copySceneKitAssets.get().getEnvironment();
+                  ExecutionContext executionContext) {
+                return copySceneKitAssets.get().getEnvironment(context.getSourcePathResolver());
               }
 
               @Override
@@ -127,7 +128,7 @@ public class SceneKitAssets extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutput() {
-    return outputDir;
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), outputDir);
   }
 }

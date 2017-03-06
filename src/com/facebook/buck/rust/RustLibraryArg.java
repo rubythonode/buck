@@ -69,7 +69,9 @@ public class RustLibraryArg extends Arg implements HasSourcePath {
   }
 
   @Override
-  public void appendToCommandLine(ImmutableCollection.Builder<String> builder) {
+  public void appendToCommandLine(
+      ImmutableCollection.Builder<String> builder,
+      SourcePathResolver pathResolver) {
     Path path = resolver.getRelativePath(rlib);
     if (direct) {
       builder.add("--extern", String.format("%s=%s", crate, path));
@@ -129,10 +131,5 @@ public class RustLibraryArg extends Arg implements HasSourcePath {
   @Override
   public SourcePath getPath() {
     return rlib;
-  }
-
-  @Override
-  public SourcePathResolver getPathResolver() {
-    return resolver;
   }
 }

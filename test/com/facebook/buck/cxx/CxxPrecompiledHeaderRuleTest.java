@@ -28,14 +28,14 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -49,15 +49,20 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.TreeMap;
 import org.hamcrest.CustomTypeSafeMatcher;
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
@@ -84,12 +89,10 @@ public class CxxPrecompiledHeaderRuleTest {
           .build(CXX_CONFIG_PCH_ENABLED)
           .withCpp(PREPROCESSOR_SUPPORTING_PCH);
 
-  private ProjectFilesystem filesystem;
-
-  private ProjectWorkspace workspace;
-
   @Rule
   public TemporaryPaths tmp = new TemporaryPaths();
+  private ProjectFilesystem filesystem;
+  private ProjectWorkspace workspace;
 
   @Before
   public void setUp() throws IOException {
@@ -130,7 +133,6 @@ public class CxxPrecompiledHeaderRuleTest {
     return new CxxPrecompiledHeaderTemplate(
         newParams(target).appendExtraDeps(deps),
         ruleResolver,
-        pathResolver,
         headerSourcePath);
   }
 
@@ -246,7 +248,7 @@ public class CxxPrecompiledHeaderRuleTest {
     BuildTarget lib1Target = newTarget("//test:lib1");
     BuildRuleParams lib1Params = newParams(lib1Target);
     CxxSourceRuleFactory factory1 = newFactoryBuilder(lib1Params, "-frtti")
-        .setPrecompiledHeader(new BuildTargetSourcePath(pchTarget))
+        .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
         .build();
     CxxPreprocessAndCompile lib1 = factory1.createPreprocessAndCompileBuildRule(
         "lib1.cpp",
@@ -258,7 +260,7 @@ public class CxxPrecompiledHeaderRuleTest {
     BuildTarget lib2Target = newTarget("//test:lib2");
     BuildRuleParams lib2Params = newParams(lib2Target);
     CxxSourceRuleFactory factory2 = newFactoryBuilder(lib2Params, "-frtti")
-        .setPrecompiledHeader(new BuildTargetSourcePath(pchTarget))
+        .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
         .build();
     CxxPreprocessAndCompile lib2 = factory2.createPreprocessAndCompileBuildRule(
         "lib2.cpp",
@@ -270,7 +272,7 @@ public class CxxPrecompiledHeaderRuleTest {
     BuildTarget lib3Target = newTarget("//test:lib3");
     BuildRuleParams lib3Params = newParams(lib3Target);
     CxxSourceRuleFactory factory3 = newFactoryBuilder(lib3Params, "-fno-rtti")
-        .setPrecompiledHeader(new BuildTargetSourcePath(pchTarget))
+        .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
         .build();
     CxxPreprocessAndCompile lib3 = factory3.createPreprocessAndCompileBuildRule(
         "lib3.cpp",
@@ -314,7 +316,7 @@ public class CxxPrecompiledHeaderRuleTest {
     BuildTarget libTarget = newTarget("//test:lib");
     BuildRuleParams libParams = newParams(libTarget);
     CxxSourceRuleFactory factory1 = newFactoryBuilder(libParams, "-flag-for-factory")
-        .setPrecompiledHeader(new BuildTargetSourcePath(pchTarget))
+        .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
         .build();
     CxxPreprocessAndCompile lib = factory1.createPreprocessAndCompileBuildRule(
         "lib.cpp",
@@ -383,7 +385,7 @@ public class CxxPrecompiledHeaderRuleTest {
     BuildTarget lib2Target = newTarget("//test:lib2");
     BuildRuleParams lib2Params = newParams(lib2Target);
     CxxSourceRuleFactory lib2Factory = newFactoryBuilder(lib2Params)
-        .setPrecompiledHeader(new BuildTargetSourcePath(pchTarget))
+        .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
         .build();
     CxxPreprocessAndCompile lib2 = lib2Factory.createPreprocessAndCompileBuildRule(
         "lib2.cpp",
@@ -527,6 +529,59 @@ public class CxxPrecompiledHeaderRuleTest {
             .toString())
         .getExitCode(),
         51);
+  }
+
+  private static void getAllFiles(
+      TreeMap<Path, byte[]> out,
+      Path dir) throws Exception {
+    assertTrue(dir.toFile().isDirectory());
+    for (Path relativeEntry : Files.list(dir).collect(Collectors.toList())) {
+      if (relativeEntry.toFile().isDirectory()) {
+        getAllFiles(out, relativeEntry);
+      } else {
+        out.put(relativeEntry, Files.readAllBytes(relativeEntry));
+      }
+    }
+  }
+
+  @Test
+  public void deterministicHashesForSharedPCHs() throws Exception {
+    assumeTrue(platformOkForPCHTests());
+
+    Sha1HashCode pchHashA = null;
+    workspace.runBuckBuild("//determinism/a:main").assertSuccess();
+    BuckBuildLog buildLogA = workspace.getBuildLog();
+    for (BuildTarget target : buildLogA.getAllTargets()) {
+      if (target.toString().startsWith("//determinism/lib:pch#default,pch-cxx-")) {
+        pchHashA = buildLogA.getLogEntry(target).getRuleKey();
+        System.err.println("A: " + pchHashA);
+      }
+    }
+    assertNotNull(pchHashA);
+
+    Sha1HashCode pchHashB = null;
+    workspace.runBuckBuild("//determinism/b:main").assertSuccess();
+    BuckBuildLog buildLogB = workspace.getBuildLog();
+    for (BuildTarget target : buildLogB.getAllTargets()) {
+      if (target.toString().startsWith("//determinism/lib:pch#default,pch-cxx-")) {
+        pchHashB = buildLogB.getLogEntry(target).getRuleKey();
+        System.err.println("B: " + pchHashB);
+      }
+    }
+    assertNotNull(pchHashB);
+    assertEquals(pchHashA, pchHashB);
+
+    Sha1HashCode pchHashC = null;
+    workspace.runBuckBuild("//determinism/c:main").assertSuccess();
+    BuckBuildLog buildLogC = workspace.getBuildLog();
+    for (BuildTarget target : buildLogC.getAllTargets()) {
+      if (target.toString().startsWith("//determinism/lib:pch#default,pch-cxx-")) {
+        pchHashC = buildLogC.getLogEntry(target).getRuleKey();
+        System.err.println("C: " + pchHashC);
+      }
+    }
+    assertNotNull(pchHashC);
+    assertNotEquals(pchHashA, pchHashC);
   }
 
 }

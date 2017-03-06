@@ -94,8 +94,8 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
@@ -399,11 +399,11 @@ public class ProjectGeneratorTest {
             ImmutableSortedMap.of(
                 "any/name.h", new FakeSourcePath("HeaderGroup1/foo.h"),
                 "different/name.h", new FakeSourcePath("HeaderGroup2/baz.h"),
-                "one/more/name.h", new BuildTargetSourcePath(privateGeneratedTarget)))
+                "one/more/name.h", new DefaultBuildTargetSourcePath(privateGeneratedTarget)))
         .setExportedHeaders(
             ImmutableSortedMap.of(
                 "yet/another/name.h", new FakeSourcePath("HeaderGroup1/bar.h"),
-                "and/one/more.h", new BuildTargetSourcePath(publicGeneratedTarget)))
+                "and/one/more.h", new DefaultBuildTargetSourcePath(publicGeneratedTarget)))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -615,12 +615,12 @@ public class ProjectGeneratorTest {
         .setExportedHeaders(
             ImmutableSortedMap.of(
                 "yet/another/name.h", new FakeSourcePath("foo/dir1/bar.h"),
-                "and/one/more.h", new BuildTargetSourcePath(publicGeneratedTarget)))
+                "and/one/more.h", new DefaultBuildTargetSourcePath(publicGeneratedTarget)))
         .setHeaders(
             ImmutableSortedMap.of(
                 "any/name.h", new FakeSourcePath("foo/dir1/foo.h"),
                 "different/name.h", new FakeSourcePath("foo/dir2/baz.h"),
-                "one/more/name.h", new BuildTargetSourcePath(privateGeneratedTarget)))
+                "one/more/name.h", new DefaultBuildTargetSourcePath(privateGeneratedTarget)))
         .setSrcs(ImmutableSortedSet.of())
         .build();
 
@@ -669,12 +669,12 @@ public class ProjectGeneratorTest {
         .setExportedHeaders(
             ImmutableSortedMap.of(
                 "yet/another/name.h", new FakeSourcePath("foo/dir1/bar.h"),
-                "and/one/more.h", new BuildTargetSourcePath(publicGeneratedTarget)))
+                "and/one/more.h", new DefaultBuildTargetSourcePath(publicGeneratedTarget)))
         .setHeaders(
             ImmutableSortedMap.of(
                 "any/name.h", new FakeSourcePath("foo/dir1/foo.h"),
                 "different/name.h", new FakeSourcePath("foo/dir2/baz.h"),
-                "one/more/name.h", new BuildTargetSourcePath(privateGeneratedTarget)))
+                "one/more/name.h", new DefaultBuildTargetSourcePath(privateGeneratedTarget)))
         .setSrcs(ImmutableSortedSet.of())
         .setHeaderNamespace("name/space")
         .build();
@@ -3375,7 +3375,7 @@ public class ProjectGeneratorTest {
   @Test
   public void usingBuildTargetSourcePathInResourceDirsOrFilesDoesNotThrow() throws IOException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//some:rule");
-    SourcePath sourcePath = new BuildTargetSourcePath(buildTarget);
+    SourcePath sourcePath = new DefaultBuildTargetSourcePath(buildTarget);
     TargetNode<?, ?> generatingTarget = ExportFileBuilder.newExportFileBuilder(buildTarget).build();
 
     ImmutableSet<TargetNode<?, ?>> nodes = FluentIterable.from(
@@ -3414,7 +3414,7 @@ public class ProjectGeneratorTest {
 
     TargetNode<ExportFileDescription.Arg, ?> source2Ref = ExportFileBuilder
         .newExportFileBuilder(source2RefTarget)
-        .setSrc(new BuildTargetSourcePath(source2Target))
+        .setSrc(new DefaultBuildTargetSourcePath(source2Target))
         .build();
 
     TargetNode<ExportFileDescription.Arg, ?> source3 = ExportFileBuilder
@@ -3434,13 +3434,13 @@ public class ProjectGeneratorTest {
         .setSrcs(
             ImmutableSortedSet.of(
                 SourceWithFlags.of(
-                    new BuildTargetSourcePath(source1Target)),
+                    new DefaultBuildTargetSourcePath(source1Target)),
                 SourceWithFlags.of(
-                    new BuildTargetSourcePath(source2RefTarget)),
+                    new DefaultBuildTargetSourcePath(source2RefTarget)),
                 SourceWithFlags.of(
-                    new BuildTargetSourcePath(source3Target))))
+                    new DefaultBuildTargetSourcePath(source3Target))))
         .setPrefixHeader(
-            Optional.of(new BuildTargetSourcePath(headerTarget)))
+            Optional.of(new DefaultBuildTargetSourcePath(headerTarget)))
         .build();
 
     ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
@@ -3632,6 +3632,7 @@ public class ProjectGeneratorTest {
         false,
         Optional.empty(),
         ImmutableSet.of(),
+        Optional.empty(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -3742,6 +3743,7 @@ public class ProjectGeneratorTest {
         false,
         Optional.empty(),
         ImmutableSet.of(),
+        Optional.empty(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -3827,6 +3829,7 @@ public class ProjectGeneratorTest {
         false,
         Optional.empty(),
         ImmutableSet.of(),
+        Optional.empty(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -4031,7 +4034,7 @@ public class ProjectGeneratorTest {
     TargetNode<?, ?> resourceNode = AppleResourceBuilder
         .createBuilder(resourceTarget)
         .setDirs(ImmutableSet.of())
-        .setFiles(ImmutableSet.of(new BuildTargetSourcePath(fileTarget)))
+        .setFiles(ImmutableSet.of(new DefaultBuildTargetSourcePath(fileTarget)))
         .build();
     TargetNode<?, ?> libraryNode = AppleLibraryBuilder
         .createBuilder(libraryTarget)
@@ -4063,7 +4066,7 @@ public class ProjectGeneratorTest {
         ExportFileBuilder.newExportFileBuilder(directoryTarget).build();
     TargetNode<?, ?> resourceNode = AppleResourceBuilder
         .createBuilder(resourceTarget)
-        .setDirs(ImmutableSet.of(new BuildTargetSourcePath(directoryTarget)))
+        .setDirs(ImmutableSet.of(new DefaultBuildTargetSourcePath(directoryTarget)))
         .setFiles(ImmutableSet.of())
         .build();
     TargetNode<?, ?> libraryNode = AppleLibraryBuilder
@@ -4098,7 +4101,7 @@ public class ProjectGeneratorTest {
         ExportFileBuilder.newExportFileBuilder(directoryTarget).build();
     TargetNode<?, ?> resourceNode = AppleResourceBuilder
         .createBuilder(resourceTarget)
-        .setDirs(ImmutableSet.of(new BuildTargetSourcePath(directoryTarget)))
+        .setDirs(ImmutableSet.of(new DefaultBuildTargetSourcePath(directoryTarget)))
         .setFiles(ImmutableSet.of())
         .build();
     TargetNode<?, ?> libraryNode = AppleLibraryBuilder
@@ -4366,7 +4369,7 @@ public class ProjectGeneratorTest {
         .build();
     BuildTarget resourceTarget = BuildTarget.builder(rootPath, "//foo", "res")
         .build();
-    SourcePath sourcePath = new BuildTargetSourcePath(frameworkTarget);
+    SourcePath sourcePath = new DefaultBuildTargetSourcePath(frameworkTarget);
     TargetNode<?, ?> resourceNode = AppleResourceBuilder
         .createBuilder(resourceTarget)
         .setFiles(ImmutableSet.of())
@@ -4475,6 +4478,7 @@ public class ProjectGeneratorTest {
     BuildTarget lib2Target = BuildTarget.builder(rootPath, "//bar", "lib2").build();
     BuildTarget lib3Target = BuildTarget.builder(rootPath, "//foo", "lib3").build();
     BuildTarget testTarget = BuildTarget.builder(rootPath, "//foo", "test").build();
+    BuildTarget lib4Target = BuildTarget.builder(rootPath, "//foo", "lib4").build();
 
     TargetNode<?, ?> lib1Node = AppleLibraryBuilder
         .createBuilder(lib1Target)
@@ -4515,11 +4519,22 @@ public class ProjectGeneratorTest {
                 "Default",
                 ImmutableMap.of()))
         .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .setDeps(ImmutableSortedSet.of(lib1Target))
+        .setDeps(ImmutableSortedSet.of(lib1Target, lib4Target))
+        .build();
+
+    TargetNode<?, ?> lib4Node = AppleLibraryBuilder
+        .createBuilder(lib4Target)
+        .setConfigs(
+            ImmutableSortedMap.of(
+                "Default",
+                ImmutableMap.of()))
+        .setExportedHeaders(
+            ImmutableSortedSet.of(new FakeSourcePath("lib4.h")))
         .build();
 
     final TargetGraph targetGraph =
-        TargetGraphFactory.newInstance(ImmutableSet.of(lib1Node, lib2Node, lib3Node, testNode));
+        TargetGraphFactory.newInstance(ImmutableSet.of(
+              lib1Node, lib2Node, lib3Node, testNode, lib4Node));
     final AppleDependenciesCache cache = new AppleDependenciesCache(targetGraph);
 
     ProjectGenerator projectGeneratorLib2 = new ProjectGenerator(
@@ -4535,7 +4550,8 @@ public class ProjectGeneratorTest {
         ImmutableList.of(),
         false, /* isMainProject */
         Optional.of(lib1Target),
-        ImmutableSet.of(),
+        ImmutableSet.of(lib1Target, lib4Target),
+        Optional.empty(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -4582,7 +4598,8 @@ public class ProjectGeneratorTest {
         ImmutableList.of(),
         true, /* isMainProject */
         Optional.of(lib1Target),
-        ImmutableSet.of(),
+        ImmutableSet.of(lib1Target, lib4Target),
+        Optional.empty(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -4604,7 +4621,9 @@ public class ProjectGeneratorTest {
             "lib1/lib1.h",
             "buck-out/gen/_p/WNl0jZWMBk-pub/lib1/lib1.h",
             "lib2/lib2.h",
-            "buck-out/gen/_p/YAYFR3hXIb-pub/lib2/lib2.h"));
+            "buck-out/gen/_p/YAYFR3hXIb-pub/lib2/lib2.h",
+            "lib4/lib4.h",
+            "buck-out/gen/_p/nmnbF8ID6C-pub/lib4/lib4.h"));
     // Checks the content of the header search paths.
     PBXProject project1 = projectGeneratorLib1.getGeneratedProject();
 
@@ -4684,6 +4703,7 @@ public class ProjectGeneratorTest {
         false,
         Optional.empty(),
         ImmutableSet.of(),
+        Optional.empty(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,

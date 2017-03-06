@@ -99,6 +99,7 @@ import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.BgProcessKiller;
+import com.facebook.buck.util.BuckArgsMethods;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.BuckIsDyingException;
 import com.facebook.buck.util.Console;
@@ -116,7 +117,7 @@ import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.WatchmanWatcherException;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
-import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
 import com.facebook.buck.util.concurrent.MostExecutors;
@@ -160,6 +161,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.lang.management.ManagementFactory;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -341,8 +343,7 @@ public final class Main {
 
     private final Cell cell;
     private final Parser parser;
-    private final FileHashCache hashCache;
-    private final FileHashCache buckOutHashCache;
+    private final ImmutableList<ProjectFileHashCache> hashCaches;
     private final EventBus fileEventBus;
     private final Optional<WebServer> webServer;
     private final ConcurrentMap<String, WorkerProcessPool> persistentWorkerPools;
@@ -369,19 +370,19 @@ public final class Main {
       ImmutableList<Cell> cells = cellsBuilder.build();
 
       // Setup the stacked file hash cache from all cells.
-      ImmutableList.Builder<FileHashCache> hashCachesBuilder = ImmutableList.builder();
+      ImmutableList.Builder<ProjectFileHashCache> hashCachesBuilder = ImmutableList.builder();
       cells.forEach(
           (Cell subCell) -> {
             WatchedFileHashCache watchedCache = new WatchedFileHashCache(subCell.getFilesystem());
             fileEventBus.register(watchedCache);
             hashCachesBuilder.add(watchedCache);
           });
-      ImmutableList<FileHashCache> hashCaches = hashCachesBuilder.build();
-      this.hashCache = new StackedFileHashCache(hashCaches);
+      hashCachesBuilder.add(
+          DefaultFileHashCache.createBuckOutFileHashCache(
+              cell.getFilesystem().replaceBlacklistedPaths(ImmutableSet.of()),
+              cell.getFilesystem().getBuckPaths().getBuckOut()));
+      this.hashCaches = hashCachesBuilder.build();
 
-      this.buckOutHashCache = DefaultFileHashCache.createBuckOutFileHashCache(
-          cell.getFilesystem().replaceBlacklistedPaths(ImmutableSet.of()),
-          cell.getFilesystem().getBuckPaths().getBuckOut());
 
       this.broadcastEventListener = new BroadcastEventListener();
       this.actionGraphCache = new ActionGraphCache(broadcastEventListener);
@@ -502,12 +503,8 @@ public final class Main {
       return broadcastEventListener;
     }
 
-    private FileHashCache getFileHashCache() {
-      return hashCache;
-    }
-
-    private FileHashCache getBuckOutHashCache() {
-      return buckOutHashCache;
+    private ImmutableList<ProjectFileHashCache> getFileHashCaches() {
+      return hashCaches;
     }
 
     private ConcurrentMap<String, WorkerProcessPool> getPersistentWorkerPools() {
@@ -801,7 +798,7 @@ public final class Main {
    * @param buildId an identifier for this command execution.
    * @param context an optional NGContext that is present if running inside a Nailgun server.
    * @param initTimestamp Value of System.nanoTime() when process got main()/nailMain() invoked.
-   * @param args command line arguments
+   * @param unexpandedCommandLineArgs command line arguments
    * @return an exit code or {@code null} if this is a process that should not exit
    */
   @SuppressWarnings("PMD.PrematureDeclaration")
@@ -813,8 +810,10 @@ public final class Main {
       CommandMode commandMode,
       WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction,
       final long initTimestamp,
-      String... args)
+      String... unexpandedCommandLineArgs)
       throws IOException, InterruptedException {
+
+    String[] args = BuckArgsMethods.expandAtFiles(unexpandedCommandLineArgs);
 
     // Parse the command line args.
     BuckCommand command = new BuckCommand();
@@ -930,7 +929,6 @@ public final class Main {
       }
 
       if (!command.isReadOnly()) {
-
         Optional<String> currentVersion =
             filesystem.readFileIfItExists(BuckConstant.getCurrentVersionFile());
         BuckPaths unconfiguredPaths =
@@ -1014,8 +1012,11 @@ public final class Main {
             clientEnvironment,
             System.getProperties());
 
-        FileHashCache cellHashCache;
-        FileHashCache buckOutHashCache;
+        ImmutableList.Builder<ProjectFileHashCache> allCaches = ImmutableList.builder();
+
+        // Build up the hash cache, which is a collection of the stateful cell cache and some
+        // per-run caches.
+        //
         // TODO(Coneko, ruibm, andrewjcg): Determine whether we can use the existing filesystem
         // object that is in scope instead of creating a new rootCellProjectFilesystem. The primary
         // difference appears to be that filesystem is created with a Config that is used to produce
@@ -1024,22 +1025,15 @@ public final class Main {
         ProjectFilesystem rootCellProjectFilesystem =
             createProjectFilesystem(rootCell.getFilesystem().getRootPath());
         if (isDaemon) {
-          cellHashCache = getFileHashCacheFromDaemon(rootCell);
-          buckOutHashCache = getBuckOutFileHashCacheFromDaemon(rootCell);
+          allCaches.addAll(getFileHashCachesFromDaemon(rootCell));
         } else {
-          cellHashCache = DefaultFileHashCache.createDefaultFileHashCache(rootCell.getFilesystem());
-          buckOutHashCache =
+          allCaches.add(DefaultFileHashCache.createDefaultFileHashCache(rootCell.getFilesystem()));
+          allCaches.add(
               DefaultFileHashCache.createBuckOutFileHashCache(
                   rootCellProjectFilesystem,
-                  rootCell.getFilesystem().getBuckPaths().getBuckOut());
+                  rootCell.getFilesystem().getBuckPaths().getBuckOut()));
         }
 
-        // Build up the hash cache, which is a collection of the stateful cell cache and some
-        // per-run caches.
-
-        ImmutableList.Builder<FileHashCache> allCaches = ImmutableList.builder();
-        allCaches.add(cellHashCache);
-        allCaches.add(buckOutHashCache);
         // A cache which caches hashes of cell-relative paths which may have been ignore by
         // the main cell cache, and only serves to prevent rehashing the same file multiple
         // times in a single run.
@@ -1060,7 +1054,7 @@ public final class Main {
               DefaultFileHashCache.createDefaultFileHashCache(createProjectFilesystem(root)));
         }
 
-        FileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
+        StackedFileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
 
         Optional<WebServer> webServer = getWebServerIfDaemon(context, rootCell);
         Optional<ConcurrentMap<String, WorkerProcessPool>> persistentWorkerPools =
@@ -1244,7 +1238,8 @@ public final class Main {
           CommandEvent.Started startedEvent = CommandEvent.started(
               args.length > 0 ? args[0] : "",
               remainingArgs,
-              isDaemon);
+              isDaemon,
+              getBuckPID());
           buildEventBus.post(startedEvent);
 
           // Create or get Parser and invalidate cached command parameters.
@@ -1686,14 +1681,10 @@ public final class Main {
     return daemon.getParser();
   }
 
-  private FileHashCache getFileHashCacheFromDaemon(Cell cell) throws IOException {
+  private ImmutableList<ProjectFileHashCache> getFileHashCachesFromDaemon(Cell cell)
+      throws IOException {
     Daemon daemon = getDaemon(cell, objectMapper);
-    return daemon.getFileHashCache();
-  }
-
-  private FileHashCache getBuckOutFileHashCacheFromDaemon(Cell cell) throws IOException {
-    Daemon daemon = getDaemon(cell, objectMapper);
-    return daemon.getBuckOutHashCache();
+    return daemon.getFileHashCaches();
   }
 
   private Optional<WebServer> getWebServerIfDaemon(
@@ -1911,6 +1902,19 @@ public final class Main {
         console.getAnsi().isAnsiTerminal() &&
         !console.getVerbosity().shouldPrintCommand() &&
         console.getVerbosity().shouldPrintStandardInformation();
+  }
+
+
+  /**
+   * A helper method to retrieve the process ID of Buck. The return value from the JVM has to match
+   * the following pattern: {PID}@{Hostname}. It it does not match the return value is 0.
+   * @return the PID or 0L.
+   */
+  private static long getBuckPID() {
+    String pid = ManagementFactory.getRuntimeMXBean().getName();
+    return (pid != null && pid.matches("^\\d+@\\w+$"))
+        ? Long.parseLong(pid.split("@")[0])
+        : 0L;
   }
 
   private static BuildId getBuildId(Optional<NGContext> context) {

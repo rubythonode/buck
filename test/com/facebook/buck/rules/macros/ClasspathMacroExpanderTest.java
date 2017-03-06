@@ -47,6 +47,8 @@ import org.junit.Test;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public class ClasspathMacroExpanderTest {
 
@@ -181,16 +183,21 @@ public class ClasspathMacroExpanderTest {
     BuildRule dep = ruleResolver.requireRule(depNode.getBuildTarget());
 
     BuildTarget forTarget = BuildTargetFactory.newInstance("//:rule");
+    Object ruleKeyAppendables = expander.extractRuleKeyAppendables(
+        forTarget,
+        createCellRoots(filesystem),
+        ruleResolver,
+        ImmutableList.of(rule.getBuildTarget().toString()));
+
+    assertThat(ruleKeyAppendables, Matchers.instanceOf(ImmutableSortedSet.class));
+    Set<BuildTarget> seenBuildTargets = new LinkedHashSet<>();
+    for (Object appendable : ((ImmutableSortedSet<?>) ruleKeyAppendables)) {
+      assertThat(appendable, Matchers.instanceOf(BuildTargetSourcePath.class));
+      seenBuildTargets.add(((BuildTargetSourcePath<?>) appendable).getTarget());
+    }
     assertThat(
-        expander.extractRuleKeyAppendables(
-            forTarget,
-            createCellRoots(filesystem),
-            ruleResolver,
-            ImmutableList.of(rule.getBuildTarget().toString())),
-        Matchers.equalTo(
-            ImmutableSortedSet.of(
-                new BuildTargetSourcePath(rule.getBuildTarget()),
-                new BuildTargetSourcePath(dep.getBuildTarget()))));
+        seenBuildTargets,
+        Matchers.equalTo(ImmutableSortedSet.of(rule.getBuildTarget(), dep.getBuildTarget())));
   }
 
   private void assertExpandsTo(

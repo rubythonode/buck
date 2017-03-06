@@ -34,14 +34,16 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -84,7 +86,7 @@ import java.util.stream.Stream;
  * Creates a bundle: a directory containing files and subdirectories, described by an Info.plist.
  */
 public class AppleBundle
-    extends AbstractBuildRuleWithResolver
+    extends AbstractBuildRule
     implements NativeTestable, BuildRuleWithBinary, HasRuntimeDeps, BinaryBuildRule {
 
   private static final Logger LOG = Logger.get(AppleBundle.class);
@@ -96,7 +98,6 @@ public class AppleBundle
   private static final String CODE_SIGN_DRY_RUN_ENTITLEMENTS_FILE =
       "BUCK_code_sign_entitlements.plist";
 
-  private final SourcePathResolver resolver;
   @AddToRuleKey
   private final String extension;
 
@@ -149,6 +150,9 @@ public class AppleBundle
   private final Optional<Tool> codesignAllocatePath;
 
   @AddToRuleKey
+  private final Tool codesign;
+
+  @AddToRuleKey
   private final Optional<Tool> swiftStdlibTool;
 
   @AddToRuleKey
@@ -177,7 +181,7 @@ public class AppleBundle
 
   AppleBundle(
       BuildRuleParams params,
-      SourcePathResolver resolver,
+      BuildRuleResolver buildRuleResolver,
       Either<AppleBundleExtension, String> extension,
       Optional<String> productName,
       SourcePath infoPlist,
@@ -197,8 +201,7 @@ public class AppleBundle
       ProvisioningProfileStore provisioningProfileStore,
       boolean dryRunCodeSigning,
       boolean cacheable) {
-    super(params, resolver);
-    this.resolver = resolver;
+    super(params);
     this.extension = extension.isLeft() ?
         extension.getLeft().toFileExtension() :
         extension.getRight();
@@ -245,6 +248,7 @@ public class AppleBundle
           CodeSignIdentityStore.fromIdentities(ImmutableList.of());
     }
     this.codesignAllocatePath = appleCxxPlatform.getCodesignAllocate();
+    this.codesign = appleCxxPlatform.getCodesignProvider().resolve(buildRuleResolver);
     this.swiftStdlibTool = appleCxxPlatform.getSwiftPlatform()
         .map(SwiftPlatform::getSwiftStdlibTool);
   }
@@ -272,8 +276,8 @@ public class AppleBundle
   }
 
   @Override
-  public Path getPathToOutput() {
-    return bundleRoot;
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), bundleRoot);
   }
 
   public Path getInfoPlistPath() {
@@ -329,7 +333,8 @@ public class AppleBundle
       stepsBuilder.add(
           CopyStep.forDirectory(
               getProjectFilesystem(),
-              coreDataModel.get().getOutputDir(),
+              context.getSourcePathResolver().getRelativePath(
+                  coreDataModel.get().getSourcePathToOutput()),
               resourcesDestinationPath,
               CopyStep.DirectoryMode.CONTENTS_ONLY));
     }
@@ -568,6 +573,7 @@ public class AppleBundle
                 codeSignOnCopyPath,
                 Optional.empty(),
                 codeSignIdentitySupplier,
+                codesign,
                 codesignAllocatePath,
                 dryRunCodeSigning ?
                     Optional.of(codeSignOnCopyPath.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE)) :
@@ -581,6 +587,7 @@ public class AppleBundle
               bundleRoot,
               signingEntitlementsTempPath,
               codeSignIdentitySupplier,
+              codesign,
               codesignAllocatePath,
               dryRunCodeSigning ?
                   Optional.of(bundleRoot.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE)) :
@@ -822,7 +829,7 @@ public class AppleBundle
       stepsBuilder.add(
           new IbtoolStep(
               getProjectFilesystem(),
-              ibtool.getEnvironment(),
+              ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
               ImmutableList.of("--target-device", "watch", "--compile"),
               sourcePath,
@@ -831,7 +838,7 @@ public class AppleBundle
       stepsBuilder.add(
           new IbtoolStep(
               getProjectFilesystem(),
-              ibtool.getEnvironment(),
+              ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
               ImmutableList.of("--target-device", "watch", "--link"),
               compiledStoryboardPath,
@@ -848,7 +855,7 @@ public class AppleBundle
       stepsBuilder.add(
           new IbtoolStep(
               getProjectFilesystem(),
-              ibtool.getEnvironment(),
+              ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
               ImmutableList.of("--compile"),
               sourcePath,
@@ -888,7 +895,7 @@ public class AppleBundle
         stepsBuilder.add(
             new IbtoolStep(
                 getProjectFilesystem(),
-                ibtool.getEnvironment(),
+                ibtool.getEnvironment(resolver),
                 ibtool.getCommandPrefix(resolver),
                 ImmutableList.of("--compile"),
                 sourcePath,
@@ -969,8 +976,7 @@ public class AppleBundle
   public Tool getExecutableCommand() {
     return new CommandTool.Builder()
         .addArg(
-            new SourcePathArg(
-                resolver,
+            SourcePathArg.of(
                 new PathSourcePath(getProjectFilesystem(), bundleBinaryPath)))
         .build();
   }

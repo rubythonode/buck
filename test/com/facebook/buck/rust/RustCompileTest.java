@@ -104,7 +104,7 @@ public class RustCompileTest {
       }
 
       @Override
-      public ImmutableMap<String, String> getEnvironment() {
+      public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
         return ImmutableMap.of();
       }
 
@@ -117,20 +117,18 @@ public class RustCompileTest {
 
   static class FakeRustCompileRule extends RustCompileRule {
     private FakeRustCompileRule(
-        SourcePathResolver pathResolver,
         BuildTarget target,
         ImmutableSortedSet<SourcePath> srcs,
         SourcePath rootModule) {
       super(
           new FakeBuildRuleParamsBuilder(target).build(),
-          pathResolver,
           String.format("lib%s.rlib", target),
           fakeTool(),
           fakeTool(),
           Stream.of(
               "--crate-name", target.getShortName(),
               "--crate-type", "rlib")
-              .map(StringArg::new)
+              .map(StringArg::of)
               .collect(MoreCollectors.toImmutableList()),
           /* linkerFlags */ ImmutableList.of(),
           srcs,
@@ -160,7 +158,7 @@ public class RustCompileTest {
       if (!root.isPresent()) {
         throw new HumanReadableException("No crate root source identified");
       }
-      return new FakeRustCompileRule(pathResolver, buildTarget, srcs, root.get());
+      return new FakeRustCompileRule(buildTarget, srcs, root.get());
     }
   }
 }

@@ -41,7 +41,7 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.DefaultCellPathResolver;
@@ -329,7 +329,7 @@ public class DistBuildStateTest {
         actionGraph,
         sourcePathResolver,
         ruleFinder,
-        DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem),
+        ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem)),
         Functions.constant(0),
         MoreExecutors.newDirectExecutorService(),
         /* keySeed */ 0,
@@ -389,7 +389,7 @@ public class DistBuildStateTest {
         JavaLibraryBuilder.createBuilder(
             BuildTargetFactory.newInstance(cellOneFilesystem, "//:foo"),
             cellOneFilesystem)
-            .addSrc(new BuildTargetSourcePath(target))
+            .addSrc(new DefaultBuildTargetSourcePath(target))
             .build(),
         JavaLibraryBuilder.createBuilder(
             target,

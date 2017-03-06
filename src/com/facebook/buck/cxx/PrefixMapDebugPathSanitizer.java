@@ -17,7 +17,6 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.infer.annotation.Assertions;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
@@ -39,6 +38,10 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
   private boolean isGcc;
   private Path compilationDir;
 
+  // Save so we can make a copy later
+  private final ImmutableBiMap<Path, Path> other;
+  private final CxxToolProvider.Type cxxType;
+
   public PrefixMapDebugPathSanitizer(
       int pathSize,
       char separator,
@@ -53,6 +56,10 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
     this.projectFilesystem = projectFilesystem;
     this.isGcc = cxxType == CxxToolProvider.Type.GCC;
     this.compilationDir = realCompilationDirectory;
+    // Save for later
+    this.other = other;
+    this.cxxType = cxxType;
+
     ImmutableBiMap.Builder<Path, Path> pathsBuilder = ImmutableBiMap.builder();
     // As these replacements are processed one at a time, if one is a prefix (or actually is just
     // contained in) another, it must be processed after that other one. To ensure that we can
@@ -130,13 +137,18 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
   }
 
   @Override
-  public void assertInProjectFilesystem(Object ruleName, ProjectFilesystem projectFilesystem) {
-    Preconditions.checkState(
-        this.projectFilesystem.getRootPath().equals(projectFilesystem.getRootPath()),
-        "When processing %s, tried to use DebugPathSanitizer for " +
-            "ProjectFilesystem rooted at %s for rule rooted at %s",
-        ruleName,
-        this.projectFilesystem.getRootPath(),
-        projectFilesystem.getRootPath());
+  public DebugPathSanitizer withProjectFilesystem(ProjectFilesystem projectFilesystem) {
+    if (this.projectFilesystem.equals(projectFilesystem)) {
+      return this;
+    }
+    // TODO(mzlee): Do not create a new sanitizer every time
+    return new PrefixMapDebugPathSanitizer(
+        this.pathSize,
+        this.separator,
+        this.compilationDirectory,
+        this.other,
+        projectFilesystem.getRootPath(),
+        this.cxxType,
+        projectFilesystem);
   }
 }

@@ -60,8 +60,8 @@ public class WindowsLinker implements Linker {
   }
 
   @Override
-  public ImmutableMap<String, String> getEnvironment() {
-    return tool.getEnvironment();
+  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+    return tool.getEnvironment(resolver);
   }
 
   @Override
@@ -108,7 +108,6 @@ public class WindowsLinker implements Linker {
   public ImmutableList<Arg> createUndefinedSymbolsLinkerArgs(
       BuildRuleParams baseParams,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
       Iterable<? extends SourcePath> symbolFiles) {
@@ -127,7 +126,7 @@ public class WindowsLinker implements Linker {
 
   @Override
   public Iterable<Arg> getSharedLibFlag() {
-    return ImmutableList.of(new StringArg("/DLL"));
+    return ImmutableList.of(StringArg.of("/DLL"));
   }
 
   @Override

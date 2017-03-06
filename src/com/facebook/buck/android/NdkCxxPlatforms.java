@@ -24,6 +24,7 @@ import com.facebook.buck.cxx.DefaultLinkerProvider;
 import com.facebook.buck.cxx.ElfSharedLibraryInterfaceFactory;
 import com.facebook.buck.cxx.GnuArchiver;
 import com.facebook.buck.cxx.GnuLinker;
+import com.facebook.buck.cxx.HeaderVerification;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.cxx.MungingDebugPathSanitizer;
@@ -32,6 +33,7 @@ import com.facebook.buck.cxx.PrefixMapDebugPathSanitizer;
 import com.facebook.buck.cxx.PreprocessorProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.ConstantToolProvider;
@@ -49,6 +51,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -58,6 +61,8 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 public class NdkCxxPlatforms {
+
+  private static final Logger LOG = Logger.get(NdkCxxPlatforms.class);
 
   /**
    * Magic path prefix we use to denote the machine-specific location of the Android NDK.  Why "@"?
@@ -101,6 +106,7 @@ public class NdkCxxPlatforms {
         ndkVersion.startsWith("11.") ? 11 :
         ndkVersion.startsWith("12.") ? 12 :
         ndkVersion.startsWith("13.") ? 13 :
+        ndkVersion.startsWith("14.") ? 14 :
         -1;
   }
 
@@ -635,11 +641,18 @@ public class NdkCxxPlatforms {
     // Add the NDK root path to the white-list so that headers from the NDK won't trigger the
     // verification warnings.  Ideally, long-term, we'd model NDK libs/headers via automatically
     // generated nodes/descriptions so that they wouldn't need to special case it here.
-    cxxPlatformBuilder.setHeaderVerification(
-        config.getHeaderVerification()
-            .withPlatformWhitelist(
-                ImmutableList.of(
-                    "^" + Pattern.quote(ndkRoot.toString() + File.separatorChar) + ".*")));
+    HeaderVerification headerVerification = config.getHeaderVerification();
+    try {
+      headerVerification = headerVerification.withPlatformWhitelist(
+          ImmutableList.of(
+              "^" + Pattern.quote(ndkRoot.toRealPath().toString() + File.separatorChar) + ".*"));
+    } catch (IOException e) {
+      LOG.debug(e, "NDK path could not be resolved: %s", ndkRoot);
+    }
+    cxxPlatformBuilder.setHeaderVerification(headerVerification);
+    LOG.debug("NDK root: %s", ndkRoot.toString());
+    LOG.debug("Headers verification platform whitelist: %s",
+        headerVerification.getPlatformWhitelist());
 
     if (cxxRuntime != CxxRuntime.SYSTEM) {
       cxxPlatformBuilder.putRuntimeLdflags(

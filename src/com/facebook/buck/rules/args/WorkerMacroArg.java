@@ -84,7 +84,7 @@ public class WorkerMacroArg extends MacroArg {
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     Tool exe = this.workerTool.getTool();
     startupCommand = exe.getCommandPrefix(pathResolver);
-    startupEnvironment = exe.getEnvironment();
+    startupEnvironment = exe.getEnvironment(pathResolver);
     jobArgs = macroHandler.expand(target, cellNames, resolver, unexpanded).trim();
   }
 
@@ -100,8 +100,8 @@ public class WorkerMacroArg extends MacroArg {
     return workerTool.getTempDir();
   }
 
-  public String getStartupArgs() {
-    return workerTool.getArgs();
+  public String getStartupArgs(SourcePathResolver pathResolver) {
+    return workerTool.getArgs(pathResolver);
   }
 
   public Optional<String> getPersistentWorkerKey() {

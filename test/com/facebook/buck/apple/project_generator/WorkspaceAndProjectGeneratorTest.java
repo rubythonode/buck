@@ -60,8 +60,8 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -253,7 +253,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -329,7 +329,7 @@ public class WorkspaceAndProjectGeneratorTest {
         true /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -389,7 +389,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -455,7 +455,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -511,7 +511,7 @@ public class WorkspaceAndProjectGeneratorTest {
         .setSrcs(
             ImmutableSortedSet.of(
                 SourceWithFlags.of(
-                    new BuildTargetSourcePath(genruleTarget))))
+                    new DefaultBuildTargetSourcePath(genruleTarget))))
         .build();
 
     TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> workspaceNode = XcodeWorkspaceConfigBuilder
@@ -530,7 +530,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -568,7 +568,7 @@ public class WorkspaceAndProjectGeneratorTest {
         .setSrcs(
             ImmutableSortedSet.of(
                 SourceWithFlags.of(
-                    new BuildTargetSourcePath(genruleTarget))))
+                    new DefaultBuildTargetSourcePath(genruleTarget))))
         .build();
 
     TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> workspaceNode = XcodeWorkspaceConfigBuilder
@@ -587,7 +587,7 @@ public class WorkspaceAndProjectGeneratorTest {
         true /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -626,7 +626,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         true /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -695,7 +695,8 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         true /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(BuildTargetFactory.newInstance(fooLib).getUnflavoredBuildTarget()),
+        Optional.of(ImmutableSet.of(
+            BuildTargetFactory.newInstance(fooLib).getUnflavoredBuildTarget())),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -854,7 +855,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -1013,7 +1014,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -1110,7 +1111,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         true /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -1173,7 +1174,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        ImmutableSet.of(),
+        Optional.empty(),
         true /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),

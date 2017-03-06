@@ -40,6 +40,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.NullFileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -75,7 +76,10 @@ public class RuleKeyTest {
   @Test
   public void testRuleKeyDependsOnDeps() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    FileHashCache hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
     BuildRuleResolver ruleResolver1 =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRuleResolver ruleResolver2 =
@@ -376,29 +380,6 @@ public class RuleKeyTest {
   }
 
   @Test
-  public void setNonHashingSourcePathAndRegularSourcePath() {
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    PathSourcePath sourcePathOne = new PathSourcePath(projectFilesystem, Paths.get("something"));
-
-    // Regular source path and non hashable source path should have different keys
-    SourcePathRuleFinder ruleFinder1 = new SourcePathRuleFinder(
-        new BuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
-    SourcePathRuleFinder ruleFinder2 = new SourcePathRuleFinder(
-        new BuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
-    assertNotEquals(
-        createEmptyRuleKey(
-            new SourcePathResolver(ruleFinder1), ruleFinder1)
-            .setReflectively("key", new NonHashableSourcePathContainer(sourcePathOne))
-            .build(),
-        createEmptyRuleKey(
-            new SourcePathResolver(ruleFinder2), ruleFinder2)
-            .setReflectively("key", sourcePathOne)
-            .build());
-  }
-
-  @Test
   public void setInputBuildTargetSourcePath() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
@@ -415,7 +396,7 @@ public class RuleKeyTest {
             pathResolver, ruleFinder)
             .setReflectively(
                 "key",
-                new BuildTargetSourcePath(
+                new ExplicitBuildTargetSourcePath(
                     fake1.getBuildTarget(),
                     Paths.get("location")))
             .build(),
@@ -423,7 +404,7 @@ public class RuleKeyTest {
             pathResolver, ruleFinder)
             .setReflectively(
                 "key",
-                new BuildTargetSourcePath(
+                new ExplicitBuildTargetSourcePath(
                     fake1.getBuildTarget(),
                     Paths.get("location")))
             .build());
@@ -434,7 +415,7 @@ public class RuleKeyTest {
             pathResolver, ruleFinder)
             .setReflectively(
                 "key",
-                new BuildTargetSourcePath(
+                new ExplicitBuildTargetSourcePath(
                     fake1.getBuildTarget(),
                     Paths.get("location")))
             .build(),
@@ -442,7 +423,7 @@ public class RuleKeyTest {
             pathResolver, ruleFinder)
             .setReflectively(
                 "key",
-                new BuildTargetSourcePath(
+                new ExplicitBuildTargetSourcePath(
                     fake1.getBuildTarget(),
                     Paths.get("different")))
             .build());
@@ -453,7 +434,7 @@ public class RuleKeyTest {
             pathResolver, ruleFinder)
             .setReflectively(
                 "key",
-                new BuildTargetSourcePath(
+                new ExplicitBuildTargetSourcePath(
                     fake1.getBuildTarget(),
                     Paths.get("location")))
             .build(),
@@ -461,7 +442,7 @@ public class RuleKeyTest {
             pathResolver, ruleFinder)
             .setReflectively(
                 "key",
-                new BuildTargetSourcePath(
+                new ExplicitBuildTargetSourcePath(
                     fake2.getBuildTarget(),
                     Paths.get("location")))
             .build());
@@ -472,7 +453,7 @@ public class RuleKeyTest {
             pathResolver, ruleFinder)
             .setReflectively(
                 "key",
-                new BuildTargetSourcePath(
+                new ExplicitBuildTargetSourcePath(
                     fake1.getBuildTarget(),
                     Paths.get("location")))
             .build(),
@@ -480,7 +461,7 @@ public class RuleKeyTest {
             pathResolver, ruleFinder)
             .setReflectively(
                 "different-key",
-                new BuildTargetSourcePath(
+                new ExplicitBuildTargetSourcePath(
                     fake1.getBuildTarget(),
                     Paths.get("location")))
             .build());
@@ -496,7 +477,7 @@ public class RuleKeyTest {
     final FakeBuildRule fakeBuildRule = new FakeBuildRule("//:fake", pathResolver);
     resolver.addToIndex(fakeBuildRule);
 
-    BuildTargetSourcePath archive1 = new BuildTargetSourcePath(
+    ExplicitBuildTargetSourcePath archive1 = new ExplicitBuildTargetSourcePath(
         fakeBuildRule.getBuildTarget(),
         Paths.get("location"));
     PathSourcePath archive2 = new PathSourcePath(
@@ -649,16 +630,16 @@ public class RuleKeyTest {
     );
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FileHashCache hashCache =
-        DefaultFileHashCache.createDefaultFileHashCache(new FakeProjectFilesystem());
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(new FakeProjectFilesystem())));
 
     BuildRule buildRule1 = new TestRuleKeyAppendableBuildRule(
         params,
-        pathResolver,
         "foo",
         "bar");
     BuildRule buildRule2 = new TestRuleKeyAppendableBuildRule(
         params,
-        pathResolver,
         "foo",
         "xyzzy");
 
@@ -679,16 +660,16 @@ public class RuleKeyTest {
     );
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FileHashCache hashCache =
-        DefaultFileHashCache.createDefaultFileHashCache(new FakeProjectFilesystem());
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(new FakeProjectFilesystem())));
 
     BuildRule buildRule1 = new TestRuleKeyAppendableBuildRule(
         params,
-        pathResolver,
         "foo",
         "bar");
     BuildRule buildRule2 = new TestRuleKeyAppendableBuildRule(
         params,
-        pathResolver,
         "foo",
         "xyzzy");
 
@@ -697,11 +678,11 @@ public class RuleKeyTest {
     BuildRuleParams parentParams1 = new FakeBuildRuleParamsBuilder(parentTarget)
         .setDeclaredDeps(ImmutableSortedSet.of(buildRule1))
         .build();
-    BuildRule parentRule1 = new NoopBuildRule(parentParams1, pathResolver);
+    BuildRule parentRule1 = new NoopBuildRule(parentParams1);
     BuildRuleParams parentParams2 = new FakeBuildRuleParamsBuilder(parentTarget)
         .setDeclaredDeps(ImmutableSortedSet.of(buildRule2))
         .build();
-    BuildRule parentRule2 = new NoopBuildRule(parentParams2, pathResolver);
+    BuildRule parentRule2 = new NoopBuildRule(parentParams2);
 
     RuleKey ruleKey1 =
         new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
@@ -770,26 +751,26 @@ public class RuleKeyTest {
 
     BuildTarget depTarget = BuildTargetFactory.newInstance("//some:dep");
     BuildRuleParams depParams = new FakeBuildRuleParamsBuilder(depTarget).build();
-    NoopBuildRule dep = new NoopBuildRule(depParams, sourcePathResolver);
+    NoopBuildRule dep = new NoopBuildRule(depParams);
 
     BuildRuleParams paramsWithDeclaredDep = new FakeBuildRuleParamsBuilder(target)
         .setDeclaredDeps(ImmutableSortedSet.of(dep))
         .build();
     NoopBuildRule ruleWithDeclaredDep =
-        new NoopBuildRule(paramsWithDeclaredDep, sourcePathResolver);
+        new NoopBuildRule(paramsWithDeclaredDep);
 
     BuildRuleParams paramsWithExtraDep = new FakeBuildRuleParamsBuilder(target)
         .setExtraDeps(ImmutableSortedSet.of(dep))
         .build();
     NoopBuildRule ruleWithExtraDep =
-        new NoopBuildRule(paramsWithExtraDep, sourcePathResolver);
+        new NoopBuildRule(paramsWithExtraDep);
 
     BuildRuleParams paramsWithBothDeps = new FakeBuildRuleParamsBuilder(target)
         .setDeclaredDeps(ImmutableSortedSet.of(dep))
         .setExtraDeps(ImmutableSortedSet.of(dep))
         .build();
     NoopBuildRule ruleWithBothDeps =
-        new NoopBuildRule(paramsWithBothDeps, sourcePathResolver);
+        new NoopBuildRule(paramsWithBothDeps);
 
     assertNotEquals(
         ruleKeyFactory.build(ruleWithDeclaredDep),
@@ -827,10 +808,9 @@ public class RuleKeyTest {
 
     public TestRuleKeyAppendableBuildRule(
         BuildRuleParams buildRuleParams,
-        SourcePathResolver sourcePathResolver,
         String foo,
         String bar) {
-      super(buildRuleParams, sourcePathResolver);
+      super(buildRuleParams);
       this.foo = foo;
       this.bar = bar;
     }
@@ -846,15 +826,6 @@ public class RuleKeyTest {
       SourcePathResolver resolver, SourcePathRuleFinder ruleFinder) {
     FileHashCache fileHashCache =
         new FileHashCache() {
-          @Override
-          public boolean willGet(Path path) {
-            return true;
-          }
-
-          @Override
-          public boolean willGet(ArchiveMemberPath archiveMemberPath) {
-            return true;
-          }
 
           @Override
           public void invalidate(Path path) {

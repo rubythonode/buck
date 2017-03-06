@@ -27,7 +27,7 @@ import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.OverrideScheduleRule;
 import com.facebook.buck.rules.RuleScheduleInfo;
@@ -55,8 +55,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Set;
-
-import javax.annotation.Nullable;
 
 class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideScheduleRule {
 
@@ -139,11 +137,13 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
   }
 
   public SourcePath getLibFileSourcePath() {
-    return new BuildTargetSourcePath(buildRuleParams.getBuildTarget(), getLibFilePath());
+    return new ExplicitBuildTargetSourcePath(buildRuleParams.getBuildTarget(), getLibFilePath());
   }
 
   public SourcePath getSymbolsNeededPath() {
-    return new BuildTargetSourcePath(buildRuleParams.getBuildTarget(), getSymbolsNeededOutPath());
+    return new ExplicitBuildTargetSourcePath(
+        buildRuleParams.getBuildTarget(),
+        getSymbolsNeededOutPath());
   }
 
   @Override
@@ -156,7 +156,7 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
       ImmutableList<Arg> args = ImmutableList.<Arg>builder()
           .addAll(linkerArgs)
           .add(
-              new StringArg(
+              StringArg.of(
                   "-Wl,--version-script=" + getRelativeVersionFilePath().toString()))
           .build();
 
@@ -205,10 +205,9 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
         });
   }
 
-  @Nullable
   @Override
-  public Path getPathToOutput() {
-    return getLibFilePath();
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getLibFilePath());
   }
 
   @Override

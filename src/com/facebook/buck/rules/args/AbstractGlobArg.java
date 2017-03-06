@@ -23,7 +23,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
@@ -56,7 +55,9 @@ abstract class AbstractGlobArg extends Arg {
    * Find all files under the given directory and add them to the command line builder.
    */
   @Override
-  public void appendToCommandLine(ImmutableCollection.Builder<String> builder) {
+  public void appendToCommandLine(
+      ImmutableCollection.Builder<String> builder,
+      SourcePathResolver pathResolver) {
     final Set<Path> paths = new TreeSet<>();
     ProjectFilesystem filesystem = getPathResolver().getFilesystem(getRoot());
     PathMatcher matcher =  // NOPMD
@@ -67,7 +68,6 @@ abstract class AbstractGlobArg extends Arg {
               getPathResolver().getRelativePath(getRoot()),
               matcher::matches));
     } catch (IOException e) {
-      Throwables.throwIfUnchecked(e);
       throw new RuntimeException(e);
     }
     builder.addAll(

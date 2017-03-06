@@ -17,7 +17,6 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
@@ -25,11 +24,9 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.shell.WorkerJobParams;
-import com.facebook.buck.shell.WorkerProcessPoolFactory;
-import com.facebook.buck.shell.WorkerShellStep;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.RmStep;
@@ -56,36 +53,24 @@ public abstract class JsFile extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutput() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.json");
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(
+        getBuildTarget(),
+        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.json"));
   }
 
   ImmutableList<Step> getBuildSteps(
       BuildContext context,
-      String jobArgsFormat) {
-    BuildTarget buildTarget = getBuildTarget();
-    final Tool tool = worker.getTool();
-    final WorkerJobParams params = WorkerJobParams.of(
-        worker.getTempDir(),
-        tool.getCommandPrefix(context.getSourcePathResolver()),
-        worker.getArgs(),
-        tool.getEnvironment(),
-        String.format(jobArgsFormat, extraArgs.orElse("")),
-        worker.getMaxWorkers(),
-        worker.isPersistent()
-            ? Optional.of(buildTarget.getCellPath().toString() + buildTarget.toString())
-            : Optional.empty(),
-        Optional.of(worker.getInstanceKey()));
-    ProjectFilesystem projectFilesystem = getProjectFilesystem();
+      String jobArgsFormat,
+      Path outputPath) {
     return ImmutableList.of(
-        new RmStep(
-            projectFilesystem,
-            getPathToOutput()),
-        new WorkerShellStep(
-            Optional.of(params),
-            Optional.empty(),
-            Optional.empty(),
-            new WorkerProcessPoolFactory(projectFilesystem))
+        new RmStep(getProjectFilesystem(), outputPath),
+        JsUtil.workerShellStep(
+            worker,
+            String.format(jobArgsFormat, extraArgs.orElse("")),
+            getBuildTarget(),
+            context.getSourcePathResolver(),
+            getProjectFilesystem())
     );
   }
 
@@ -112,28 +97,28 @@ public abstract class JsFile extends AbstractBuildRule {
         BuildContext context,
         BuildableContext buildableContext) {
 
-      final Path pathToOutput = getPathToOutput();
+      final SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
+      final Path outputPath = sourcePathResolver.getAbsolutePath(getSourcePathToOutput());
       final String jobArgs = String.join(
           " ",
           "transform %s --filename",
           virtualPath.orElseGet(() ->
-              MorePaths.pathWithUnixSeparators(
-                  context.getSourcePathResolver().getRelativePath(src))),
+              MorePaths.pathWithUnixSeparators(sourcePathResolver.getRelativePath(src))),
           src.toString(),
-          pathToOutput.toString());
+          outputPath.toString());
 
-      return getBuildSteps(context, jobArgs);
+      return getBuildSteps(context, jobArgs, outputPath);
     }
   }
 
   static class JsFileProd extends JsFile {
 
     @AddToRuleKey
-    private final JsFile devFile;
+    private final SourcePath devFile;
 
     JsFileProd(
         BuildRuleParams buildRuleParams,
-        JsFile devFile,
+        SourcePath devFile,
         Optional<String> extraArgs,
         WorkerTool worker) {
       super(buildRuleParams, extraArgs, worker);
@@ -146,14 +131,16 @@ public abstract class JsFile extends AbstractBuildRule {
         BuildableContext buildableContext) {
 
       final BuildTarget buildTarget = getBuildTarget();
+      final SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
+      final Path outputPath = sourcePathResolver.getAbsolutePath(getSourcePathToOutput());
       final String jobArgs = String.join(
           " ",
           "optimize %s --platform",
           JsFlavors.getPlatform(buildTarget.getFlavors()),
-          devFile.getPathToOutput().toString(),
-          getPathToOutput().toString());
+          sourcePathResolver.getAbsolutePath(devFile).toString(),
+          outputPath.toString());
 
-      return getBuildSteps(context, jobArgs);
+      return getBuildSteps(context, jobArgs, outputPath);
     }
   }
 }

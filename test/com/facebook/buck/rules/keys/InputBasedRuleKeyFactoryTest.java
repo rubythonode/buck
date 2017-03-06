@@ -20,14 +20,15 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
+import com.facebook.buck.rules.NonHashableSourcePathContainer;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
@@ -43,6 +44,7 @@ import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -56,6 +58,9 @@ import org.junit.rules.ExpectedException;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
 
 public class InputBasedRuleKeyFactoryTest {
   @Rule
@@ -87,9 +92,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRule rule =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setOut("out")
-            .setSrcs(
-                ImmutableList.of(
-                    new BuildTargetSourcePath(dep.getBuildTarget())))
+            .setSrcs(ImmutableList.of(dep.getSourcePathToOutput()))
             .build(resolver, filesystem);
 
     RuleKey inputKey1 =
@@ -161,7 +164,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRule rule =
         ExportFileBuilder.newExportFileBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setOut("out")
-            .setSrc(new BuildTargetSourcePath(dep.getBuildTarget()))
+            .setSrc(dep.getSourcePathToOutput())
             .build(resolver, filesystem);
 
     // Build a rule key with a particular hash set for the output for the above rule.
@@ -201,7 +204,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder("//:rule").setProjectFilesystem(filesystem).build();
     BuildRule rule =
-        new NoopBuildRule(params, pathResolver) {
+        new NoopBuildRule(params) {
           @AddToRuleKey
           RuleKeyAppendableWithInput input =
               new RuleKeyAppendableWithInput(new PathSourcePath(filesystem, output));
@@ -252,11 +255,10 @@ public class InputBasedRuleKeyFactoryTest {
             .setProjectFilesystem(filesystem)
             .build();
     BuildRule rule =
-        new NoopBuildRule(params, pathResolver) {
+        new NoopBuildRule(params) {
           @AddToRuleKey
           RuleKeyAppendableWithInput input =
-              new RuleKeyAppendableWithInput(
-                  new BuildTargetSourcePath(dep.getBuildTarget()));
+              new RuleKeyAppendableWithInput(dep.getSourcePathToOutput());
         };
 
     // Build a rule key with a particular hash set for the output for the above rule.
@@ -284,6 +286,41 @@ public class InputBasedRuleKeyFactoryTest {
         Matchers.not(Matchers.equalTo(inputKey2)));
   }
 
+
+  @Test
+  public void ruleKeyDoesNotChangeIfNonHashingSourcePathContentChanges()
+      throws NoSuchBuildTargetException {
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    final ProjectFilesystem fileSystem = new FakeProjectFilesystem();
+
+    // Build a rule key with a particular hash set for the output for the above rule.
+    Path filePath = fileSystem.getPath("file.txt");
+    FakeFileHashCache hashCache = new FakeFileHashCache(new HashMap<>());
+
+    hashCache.set(filePath.toAbsolutePath(), HashCode.fromInt(0));
+    PathSourcePath sourcePath = new PathSourcePath(fileSystem, filePath);
+    NonHashableSourcePathContainer nonHashablePath = new NonHashableSourcePathContainer(sourcePath);
+    RuleKey inputKey1 = computeRuleKey(
+        hashCache,
+        pathResolver,
+        ruleFinder,
+        nonHashablePath);
+
+    hashCache.set(filePath.toAbsolutePath(), HashCode.fromInt(1));
+    RuleKey inputKey2 = computeRuleKey(
+        hashCache,
+        pathResolver,
+        ruleFinder,
+        nonHashablePath);
+
+    assertThat(
+        inputKey1,
+        Matchers.equalTo(inputKey2));
+  }
+
   @Test
   public void nestedSizeLimitExceptionHandled() throws Exception {
     BuildRuleResolver resolver =
@@ -292,7 +329,10 @@ public class InputBasedRuleKeyFactoryTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     final FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    FileHashCache hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
 
     Path inputFile = filesystem.getPath("input");
     filesystem.writeBytesToPath(new byte[1024], inputFile);
@@ -300,7 +340,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRuleParams params =
         new FakeBuildRuleParamsBuilder("//:rule").setProjectFilesystem(filesystem).build();
     BuildRule rule =
-        new NoopBuildRule(params, pathResolver) {
+        new NoopBuildRule(params) {
           @AddToRuleKey
           NestedRuleKeyAppendableWithInput input =
               new NestedRuleKeyAppendableWithInput(new PathSourcePath(filesystem, inputFile));
@@ -319,7 +359,10 @@ public class InputBasedRuleKeyFactoryTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    FileHashCache hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
 
     // Create input that passes size limit.
     Path input = filesystem.getPath("input");
@@ -345,7 +388,10 @@ public class InputBasedRuleKeyFactoryTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    FileHashCache hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
 
     // Create inputs that combine to pass size limit.
     Path input1 = filesystem.getPath("input1");
@@ -376,7 +422,10 @@ public class InputBasedRuleKeyFactoryTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    FileHashCache hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
 
     // Create a directory of files which combine to pass size limit.
     Path input = filesystem.getPath("input");
@@ -404,7 +453,10 @@ public class InputBasedRuleKeyFactoryTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    FileHashCache hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
     final int sizeLimit = 200;
     InputBasedRuleKeyFactory factory =
         new InputBasedRuleKeyFactory(fieldLoader, hashCache, pathResolver, ruleFinder, sizeLimit);
@@ -431,7 +483,10 @@ public class InputBasedRuleKeyFactoryTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    FileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    FileHashCache hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
     final int sizeLimit = 200;
     InputBasedRuleKeyFactory factory =
         new InputBasedRuleKeyFactory(fieldLoader, hashCache, pathResolver, ruleFinder, sizeLimit);
@@ -476,6 +531,24 @@ public class InputBasedRuleKeyFactoryTest {
       sink.setReflectively("input", appendable);
     }
 
+  }
+
+  RuleKey computeRuleKey(
+      FileHashCache hashCache,
+      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
+      Object... objects) {
+    return new InputBasedRuleKeyFactory(
+        0,
+        hashCache,
+        resolver,
+        ruleFinder)
+        .build(
+            new FakeBuildRule("//fake:target", resolver) {
+              @AddToRuleKey
+              List<Object> ruleObjects = Arrays.asList(objects);
+            }
+    );
   }
 
 }

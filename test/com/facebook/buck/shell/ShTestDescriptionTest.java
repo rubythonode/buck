@@ -23,7 +23,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
@@ -36,6 +35,7 @@ import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -66,10 +66,8 @@ public class ShTestDescriptionTest {
         shTest.getDeps(),
         Matchers.contains(dep));
     assertThat(
-        Arg.stringify(shTest.getArgs()),
-        Matchers.contains(
-            pathResolver.getAbsolutePath(
-                new BuildTargetSourcePath(dep.getBuildTarget())).toString()));
+        Arg.stringify(shTest.getArgs(), pathResolver),
+        Matchers.contains(pathResolver.getAbsolutePath(dep.getSourcePathToOutput()).toString()));
   }
 
   @Test
@@ -91,12 +89,10 @@ public class ShTestDescriptionTest {
         shTest.getDeps(),
         Matchers.contains(dep));
     assertThat(
-        Arg.stringify(shTest.getEnv()),
+        Arg.stringify(shTest.getEnv(), pathResolver),
         Matchers.equalTo(
             ImmutableMap.of(
-                "LOC",
-                pathResolver.getAbsolutePath(
-                    new BuildTargetSourcePath(dep.getBuildTarget())).toString())));
+                "LOC", pathResolver.getAbsolutePath(dep.getSourcePathToOutput()).toString())));
   }
 
   @Test
@@ -148,7 +144,9 @@ public class ShTestDescriptionTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FileHashCache fileHashCache =
-        DefaultFileHashCache.createDefaultFileHashCache(rule.getProjectFilesystem());
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(rule.getProjectFilesystem())));
     DefaultRuleKeyFactory factory =
         new DefaultRuleKeyFactory(0, fileHashCache, pathResolver, ruleFinder);
     return factory.build(rule);

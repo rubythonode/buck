@@ -26,7 +26,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
@@ -63,7 +63,6 @@ public class CxxDescriptionEnhancerTest {
     BuildRuleParams libParams = new FakeBuildRuleParamsBuilder(libTarget).build();
     FakeCxxLibrary libRule = new FakeCxxLibrary(
         libParams,
-        pathResolver,
         BuildTargetFactory.newInstance("//:header"),
         BuildTargetFactory.newInstance("//:symlink"),
         BuildTargetFactory.newInstance("//:privateheader"),
@@ -102,8 +101,8 @@ public class CxxDescriptionEnhancerTest {
         "Test of library should include both public and private headers",
         roots,
         Matchers.hasItems(
-            new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:symlink")),
-            new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:privatesymlink"))));
+            new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//:symlink")),
+            new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//:privatesymlink"))));
   }
 
   @Test
@@ -119,7 +118,6 @@ public class CxxDescriptionEnhancerTest {
     BuildRuleParams otherlibParams = new FakeBuildRuleParamsBuilder(otherlibTarget).build();
     FakeCxxLibrary otherlibRule = new FakeCxxLibrary(
         otherlibParams,
-        pathResolver,
         BuildTargetFactory.newInstance("//:otherheader"),
         BuildTargetFactory.newInstance("//:othersymlink"),
         BuildTargetFactory.newInstance("//:otherprivateheader"),
@@ -136,7 +134,6 @@ public class CxxDescriptionEnhancerTest {
         .setDeclaredDeps(ImmutableSortedSet.of(otherlibRule)).build();
     FakeCxxLibrary libRule = new FakeCxxLibrary(
         libParams,
-        pathResolver,
         BuildTargetFactory.newInstance("//:header"),
         BuildTargetFactory.newInstance("//:symlink"),
         BuildTargetFactory.newInstance("//:privateheader"),
@@ -177,10 +174,12 @@ public class CxxDescriptionEnhancerTest {
             CxxPreprocessorInput.concat(combinedInput).getIncludes(),
             CxxHeaders::getRoot),
         allOf(
-            hasItem(new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:othersymlink"))),
+            hasItem(
+                new DefaultBuildTargetSourcePath(
+                    BuildTargetFactory.newInstance("//:othersymlink"))),
             not(
                 hasItem(
-                    new BuildTargetSourcePath(
+                    new DefaultBuildTargetSourcePath(
                         BuildTargetFactory.newInstance("//:otherprivatesymlink"))))));
   }
 
@@ -195,7 +194,6 @@ public class CxxDescriptionEnhancerTest {
     BuildRuleParams libParams = new FakeBuildRuleParamsBuilder(libTarget).build();
     FakeCxxLibrary libRule = new FakeCxxLibrary(
         libParams,
-        pathResolver,
         BuildTargetFactory.newInstance("//:header"),
         BuildTargetFactory.newInstance("//:symlink"),
         BuildTargetFactory.newInstance("//:privateheader"),
@@ -235,9 +233,10 @@ public class CxxDescriptionEnhancerTest {
         "Non-test rule with library dep should include public and not private headers",
         roots,
         allOf(
-            hasItem(new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:symlink"))),
+            hasItem(new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//:symlink"))),
             not(hasItem(
-                new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:privatesymlink"))))));
+                new DefaultBuildTargetSourcePath(
+                    BuildTargetFactory.newInstance("//:privatesymlink"))))));
   }
 
   @Test

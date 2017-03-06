@@ -53,20 +53,17 @@ public class CxxLinkTest {
 
   private static final Linker DEFAULT_LINKER = new GnuLinker(new HashedFileTool(Paths.get("ld")));
   private static final Path DEFAULT_OUTPUT = Paths.get("test.exe");
-  private static final SourcePathResolver DEFAULT_SOURCE_PATH_RESOLVER =
-      new SourcePathResolver(new SourcePathRuleFinder(
-          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
   private static final ImmutableList<Arg> DEFAULT_ARGS =
       ImmutableList.of(
-          new StringArg("-rpath"),
-          new StringArg("/lib"),
-          new StringArg("libc.a"),
-          new SourcePathArg(DEFAULT_SOURCE_PATH_RESOLVER, new FakeSourcePath("a.o")),
-          new SourcePathArg(DEFAULT_SOURCE_PATH_RESOLVER, new FakeSourcePath("b.o")),
-          new SourcePathArg(DEFAULT_SOURCE_PATH_RESOLVER, new FakeSourcePath("libc.a")),
-          new StringArg("-L"),
-          new StringArg("/System/Libraries/libz.dynlib"),
-          new StringArg("-llibz.dylib"));
+          StringArg.of("-rpath"),
+          StringArg.of("/lib"),
+          StringArg.of("libc.a"),
+          SourcePathArg.of(new FakeSourcePath("a.o")),
+          SourcePathArg.of(new FakeSourcePath("b.o")),
+          SourcePathArg.of(new FakeSourcePath("libc.a")),
+          StringArg.of("-L"),
+          StringArg.of("/System/Libraries/libz.dynlib"),
+          StringArg.of("-llibz.dylib"));
 
   @Test
   public void testThatInputChangesCauseRuleKeyChanges() {
@@ -131,8 +128,7 @@ public class CxxLinkTest {
                 DEFAULT_LINKER,
                 DEFAULT_OUTPUT,
                 ImmutableList.of(
-                    new SourcePathArg(
-                        pathResolver,
+                    SourcePathArg.of(
                         new FakeSourcePath("different"))),
                 Optional.empty(),
                 /* cacheable */ true));

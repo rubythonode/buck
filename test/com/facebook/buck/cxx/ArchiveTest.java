@@ -27,7 +27,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
@@ -96,7 +95,6 @@ public class ArchiveTest {
             Archive.from(
                 target,
                 params,
-                pathResolver,
                 ruleFinder,
                 DEFAULT_ARCHIVER,
                 ImmutableList.of(),
@@ -112,7 +110,6 @@ public class ArchiveTest {
             Archive.from(
                 target,
                 params,
-                pathResolver,
                 ruleFinder,
                 new GnuArchiver(new HashedFileTool(Paths.get("different"))),
                 ImmutableList.of(),
@@ -129,7 +126,6 @@ public class ArchiveTest {
             Archive.from(
                 target,
                 params,
-                pathResolver,
                 ruleFinder,
                 DEFAULT_ARCHIVER,
                 ImmutableList.of(),
@@ -146,7 +142,6 @@ public class ArchiveTest {
             Archive.from(
                 target,
                 params,
-                pathResolver,
                 ruleFinder,
                 DEFAULT_ARCHIVER,
                 ImmutableList.of(),
@@ -163,7 +158,6 @@ public class ArchiveTest {
             Archive.from(
                 target,
                 params,
-                pathResolver,
                 ruleFinder,
                 new BsdArchiver(new HashedFileTool(AR)),
                 ImmutableList.of(),
@@ -186,7 +180,6 @@ public class ArchiveTest {
     Archive archive = Archive.from(
         target,
         params,
-        pathResolver,
         ruleFinder,
         DEFAULT_ARCHIVER,
         ImmutableList.of("-foo"),
@@ -237,7 +230,6 @@ public class ArchiveTest {
         Archive.from(
             target,
             params,
-            new SourcePathResolver(ruleFinder),
             ruleFinder,
             DEFAULT_ARCHIVER,
             ImmutableList.of(),
@@ -247,8 +239,8 @@ public class ArchiveTest {
             DEFAULT_OUTPUT,
             ImmutableList.of(
                 new FakeSourcePath("simple.o"),
-                new BuildTargetSourcePath(genrule1.getBuildTarget()),
-                new BuildTargetSourcePath(genrule2.getBuildTarget())));
+                genrule1.getSourcePathToOutput(),
+                genrule2.getSourcePathToOutput()));
 
     // Verify that the archive dependencies include the genrules providing the
     // SourcePath inputs.
@@ -280,7 +272,6 @@ public class ArchiveTest {
         Archive.from(
             target,
             params,
-            pathResolver,
             ruleFinder,
             DEFAULT_ARCHIVER,
             ImmutableList.of(),

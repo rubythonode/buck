@@ -34,8 +34,8 @@ import java.util.stream.StreamSupport;
  * Encapsulates all the logic to sanitize debug paths in native code.
  */
 public abstract class DebugPathSanitizer {
-  private final int pathSize;
-  private final char separator;
+  protected final int pathSize;
+  protected final char separator;
   protected final Path compilationDirectory;
 
   public DebugPathSanitizer(
@@ -115,11 +115,12 @@ public abstract class DebugPathSanitizer {
   abstract void restoreCompilationDirectory(Path path, Path workingDir) throws IOException;
 
   /**
-   * Defensive check for cross-cell builds: asserts that this sanitizer can safely run
-   * in the provided ProjectFilesystem.
+   * Offensive check for cross-cell builds: return a new sanitizer
+   * with the provided ProjectFilesystem
    */
   @SuppressWarnings("unused")
-  public void assertInProjectFilesystem(Object ruleName, ProjectFilesystem projectFilesystem) {
-    // Do nothing by default.  Only one subclass is able to check this for now.
+  public DebugPathSanitizer withProjectFilesystem(ProjectFilesystem projectFilesystem) {
+    // Do nothing by default.  Only one subclass uses this right now.
+    return this;
   }
 }

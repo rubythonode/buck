@@ -36,6 +36,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Arrays;
 
 /**
  * All messages generate by this Protocol will be in the following binary format:
@@ -138,6 +139,16 @@ public class ThriftArtifactCacheProtocol {
         }
       }
     }
+
+    @Override
+    public String toString() {
+      return "Request{" +
+          "serializedThriftData=" + Arrays.toString(serializedThriftData) +
+          ", payloads=" + payloads +
+          ", totalPayloadBytes=" + totalPayloadBytes +
+          ", payloadByteSources=" + Arrays.toString(payloadByteSources) +
+          '}';
+    }
   }
 
   public static class Response implements Closeable {
@@ -177,7 +188,8 @@ public class ThriftArtifactCacheProtocol {
           nextPayloadToBeRead,
           thriftData.getPayloadsSize());
 
-      long payloadSizeBytes = thriftData.getPayloads().get(nextPayloadToBeRead).getSizeBytes();
+      long payloadSizeBytes = Preconditions.checkNotNull(thriftData.getPayloads())
+          .get(nextPayloadToBeRead).getSizeBytes();
       try (HashingOutputStream wrappedOutputStream =
                new HashingOutputStream(MD5_HASH_FUNCTION, outStream)) {
         copyExactly(responseStream, wrappedOutputStream, payloadSizeBytes);

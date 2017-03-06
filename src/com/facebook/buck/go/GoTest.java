@@ -88,14 +88,13 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
   public GoTest(
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
-      SourcePathResolver resolver,
       GoBinary testMain,
       ImmutableSet<Label> labels,
       ImmutableSet<String> contacts,
       Optional<Long> testRuleTimeoutMs,
       boolean runTestsSeparately,
       ImmutableSortedSet<SourcePath> resources) {
-    super(buildRuleParams, resolver);
+    super(buildRuleParams);
     this.ruleFinder = ruleFinder;
     this.testMain = testMain;
     this.labels = labels;
@@ -144,7 +143,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
             getProjectFilesystem(),
             getPathToTestWorkingDirectory(),
             args.build(),
-            testMain.getExecutableCommand().getEnvironment(),
+            testMain.getExecutableCommand().getEnvironment(pathResolver),
             getPathToTestExitCode(),
             processTimeoutMs,
             getPathToTestResults()));
@@ -292,7 +291,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("go")
-        .putAllEnv(testMain.getExecutableCommand().getEnvironment())
+        .putAllEnv(testMain.getExecutableCommand().getEnvironment(pathResolver))
         .addAllCommand(testMain.getExecutableCommand().getCommandPrefix(pathResolver))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())

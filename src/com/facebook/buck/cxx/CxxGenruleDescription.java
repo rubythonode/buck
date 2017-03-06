@@ -34,6 +34,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -257,8 +258,7 @@ public class CxxGenruleDescription
           resolver,
           args);
     }
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
-    return new CxxGenrule(params, pathResolver, resolver, args.out);
+    return new CxxGenrule(params, resolver, args.out);
   }
 
   @Override
@@ -549,7 +549,7 @@ public class CxxGenruleDescription
         FilterAndTargets input)
         throws MacroException {
       return input.targets.stream()
-          .map(BuildTargetSourcePath::new)
+          .map(DefaultBuildTargetSourcePath::new)
           .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
     }
 
@@ -843,7 +843,9 @@ public class CxxGenruleDescription
         Optional<Pattern> filter)
         throws MacroException {
       return shquoteJoin(
-          com.facebook.buck.rules.args.Arg.stringify(getLinkerArgs(resolver, rules, filter)));
+          com.facebook.buck.rules.args.Arg.stringify(
+              getLinkerArgs(resolver, rules, filter),
+              new SourcePathResolver(new SourcePathRuleFinder(resolver))));
     }
 
     @Override

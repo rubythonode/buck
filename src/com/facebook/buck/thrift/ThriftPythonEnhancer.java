@@ -25,10 +25,8 @@ import com.facebook.buck.python.PythonUtil;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
@@ -135,7 +133,7 @@ public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
     // building up a map of them.
     for (ImmutableMap.Entry<String, ThriftSource> ent : sources.entrySet()) {
       ThriftSource source = ent.getValue();
-      Path outputDir = source.getOutputDir();
+      Path outputDir = source.getOutputDir(resolver);
 
       for (String module :
            getGeneratedSources(params.getBuildTarget(), args, ent.getKey(), source.getServices())) {
@@ -144,7 +142,7 @@ public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
             .resolve(module);
         modulesBuilder.put(
             Paths.get(module.endsWith(".py") ? module : module + ".py"),
-            new BuildTargetSourcePath(source.getCompileRule().getBuildTarget(), path));
+            new ExplicitBuildTargetSourcePath(source.getCompileTarget(), path));
       }
 
     }
@@ -163,7 +161,6 @@ public class ThriftPythonEnhancer implements ThriftLanguageSpecificEnhancer {
         Functions.constant(ImmutableMap.<Path, SourcePath>of());
     return new PythonLibrary(
         langParams,
-        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         Functions.constant(modules),
         resources,
         Optional.of(true));

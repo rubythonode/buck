@@ -55,12 +55,11 @@ public class ApkGenrule extends Genrule implements HasInstallableApk {
 
   private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID);
   @AddToRuleKey
-  private final BuildTargetSourcePath apk;
+  private final BuildTargetSourcePath<?> apk;
   private final HasInstallableApk hasInstallableApk;
 
   ApkGenrule(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       List<SourcePath> srcs,
       Optional<Arg> cmd,
@@ -70,7 +69,6 @@ public class ApkGenrule extends Genrule implements HasInstallableApk {
       SourcePath apk) {
     super(
         params,
-        resolver,
         srcs,
         cmd,
         bash,
@@ -79,7 +77,7 @@ public class ApkGenrule extends Genrule implements HasInstallableApk {
         /* out */ params.getBuildTarget().getShortNameAndFlavorPostfix() + ".apk");
 
     Preconditions.checkState(apk instanceof BuildTargetSourcePath);
-    this.apk = (BuildTargetSourcePath) apk;
+    this.apk = (BuildTargetSourcePath<?>) apk;
     BuildRule rule = ruleFinder.getRuleOrThrow(this.apk);
     Preconditions.checkState(rule instanceof HasInstallableApk);
     this.hasInstallableApk = (HasInstallableApk) rule;

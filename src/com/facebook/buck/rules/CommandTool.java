@@ -90,18 +90,18 @@ public class CommandTool implements Tool {
       command.addAll(baseTool.get().getCommandPrefix(resolver));
     }
     for (Arg arg : args) {
-      arg.appendToCommandLine(command);
+      arg.appendToCommandLine(command, resolver);
     }
     return command.build();
   }
 
   @Override
-  public ImmutableMap<String, String> getEnvironment() {
+  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
     ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
     if (baseTool.isPresent()) {
-      env.putAll(baseTool.get().getEnvironment());
+      env.putAll(baseTool.get().getEnvironment(resolver));
     }
-    env.putAll(Arg.stringify(environment));
+    env.putAll(Arg.stringify(environment, resolver));
     return env.build();
   }
 
@@ -145,7 +145,7 @@ public class CommandTool implements Tool {
     }
 
     public Builder addArg(String arg) {
-      return addArg(new StringArg(arg));
+      return addArg(StringArg.of(arg));
     }
 
     /**
@@ -157,7 +157,7 @@ public class CommandTool implements Tool {
     }
 
     public Builder addEnv(String key, String val) {
-      return addEnv(key, new StringArg(val));
+      return addEnv(key, StringArg.of(val));
     }
 
     /**

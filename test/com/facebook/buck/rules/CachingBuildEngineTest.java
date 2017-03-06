@@ -82,6 +82,7 @@ import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.NullFileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.concurrent.ListeningMultiSemaphore;
 import com.facebook.buck.util.concurrent.MoreFutures;
 import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
@@ -202,7 +203,10 @@ public class CachingBuildEngineTest {
     @Before
     public void setUp() {
       filesystem = new FakeProjectFilesystem(tmp.getRoot());
-      fileHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+      fileHashCache =
+          new StackedFileHashCache(
+              ImmutableList.of(
+                  DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
       buildContext = BuildEngineBuildContext.builder()
           .setBuildContext(FakeBuildContext.NOOP_CONTEXT)
           .setArtifactCache(cache)
@@ -309,7 +313,7 @@ public class CachingBuildEngineTest {
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
       buckEventBus.post(
           CommandEvent.finished(
-              CommandEvent.started("build", ImmutableList.of(), false), 0));
+              CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
       verifyAll();
 
       RuleKey ruleToTestKey = defaultRuleKeyFactory.build(ruleToTest);
@@ -444,7 +448,7 @@ public class CachingBuildEngineTest {
           cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), buildRule);
       buckEventBus.post(
           CommandEvent.finished(
-              CommandEvent.started("build", ImmutableList.of(), false), 0));
+              CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
 
       BuildResult result = buildResult.get();
       verifyAll();
@@ -518,7 +522,7 @@ public class CachingBuildEngineTest {
           cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), buildRule);
       buckEventBus.post(
           CommandEvent.finished(
-              CommandEvent.started("build", ImmutableList.of(), false), 0));
+              CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
 
       BuildResult result = buildResult.get();
       verifyAll();
@@ -901,7 +905,7 @@ public class CachingBuildEngineTest {
 
         @Nullable
         @Override
-        public Path getPathToOutput() {
+        public SourcePath getSourcePathToOutput() {
           return null;
         }
       };
@@ -955,7 +959,6 @@ public class CachingBuildEngineTest {
       filesystem.mkdirs(output.getParent());
       filesystem.writeContentsToPath("something", output);
       HashCode originalHashCode = fileHashCache.get(filesystem.resolve(output));
-      assertTrue(fileHashCache.willGet(output));
 
       // Create a simple rule which just writes something new to the output file.
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -1150,16 +1153,12 @@ public class CachingBuildEngineTest {
       BuildRule rule2 =
           GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:rule2"))
               .setOut("out2")
-              .setSrcs(
-                  ImmutableList.of(
-                      new BuildTargetSourcePath(rule3.getBuildTarget())))
+              .setSrcs(ImmutableList.of(rule3.getSourcePathToOutput()))
               .build(resolver);
       BuildRule rule1 =
           GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:rule1"))
               .setOut("out1")
-              .setSrcs(
-                  ImmutableList.of(
-                      new BuildTargetSourcePath(rule2.getBuildTarget())))
+              .setSrcs(ImmutableList.of(rule2.getSourcePathToOutput()))
               .build(resolver);
 
       // Create the build engine.
@@ -1262,9 +1261,10 @@ public class CachingBuildEngineTest {
               return ImmutableList.of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -1464,9 +1464,10 @@ public class CachingBuildEngineTest {
               return ImmutableList.of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
       resolver.addToIndex(rule);
@@ -1539,9 +1540,10 @@ public class CachingBuildEngineTest {
               }
             });
       }
+
       @Override
-      public Path getPathToOutput() {
-        return Paths.get("output");
+      public SourcePath getSourcePathToOutput() {
+        return new ExplicitBuildTargetSourcePath(getBuildTarget(), Paths.get("output"));
       }
     }
   }
@@ -1580,7 +1582,7 @@ public class CachingBuildEngineTest {
       final DepFileBuildRule rule =
           new DepFileBuildRule(params) {
             @AddToRuleKey
-            private final SourcePath path = new BuildTargetSourcePath(genrule.getBuildTarget());
+            private final SourcePath path = genrule.getSourcePathToOutput();
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context,
@@ -1603,9 +1605,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -1688,9 +1691,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -1742,7 +1746,7 @@ public class CachingBuildEngineTest {
       DepFileBuildRule rule =
           new DepFileBuildRule(params) {
             @AddToRuleKey
-            private final SourcePath path = new BuildTargetSourcePath(genrule.getBuildTarget());
+            private final SourcePath path = genrule.getSourcePathToOutput();
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context,
@@ -1765,9 +1769,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -1843,9 +1848,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of();
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -1911,7 +1917,7 @@ public class CachingBuildEngineTest {
       DepFileBuildRule rule =
           new DepFileBuildRule(params) {
             @AddToRuleKey
-            private final SourcePath path = new BuildTargetSourcePath(genrule.getBuildTarget());
+            private final SourcePath path = genrule.getSourcePathToOutput();
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context,
@@ -1934,9 +1940,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of();
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -1994,7 +2001,7 @@ public class CachingBuildEngineTest {
       DepFileBuildRule rule =
           new DepFileBuildRule(params) {
             @AddToRuleKey
-            private final SourcePath path = new BuildTargetSourcePath(genrule.getBuildTarget());
+            private final SourcePath path = genrule.getSourcePathToOutput();
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context,
@@ -2017,9 +2024,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of();
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -2135,7 +2143,7 @@ public class CachingBuildEngineTest {
       DepFileBuildRule rule =
           new DepFileBuildRule(params) {
             @AddToRuleKey
-            private final SourcePath path = new BuildTargetSourcePath(genrule.getBuildTarget());
+            private final SourcePath path = genrule.getSourcePathToOutput();
             @AddToRuleKey
             private final SourcePath otherDep = new PathSourcePath(filesystem, input2);
             @Override
@@ -2157,9 +2165,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of(path);
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -2246,7 +2255,7 @@ public class CachingBuildEngineTest {
       DepFileBuildRule rule =
           new DepFileBuildRule(params) {
             @AddToRuleKey
-            private final SourcePath path = new BuildTargetSourcePath(genrule.getBuildTarget());
+            private final SourcePath path = genrule.getSourcePathToOutput();
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context,
@@ -2266,9 +2275,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -2369,7 +2379,7 @@ public class CachingBuildEngineTest {
       DepFileBuildRule rule =
           new DepFileBuildRule(params) {
             @AddToRuleKey
-            private final SourcePath path = new BuildTargetSourcePath(genrule.getBuildTarget());
+            private final SourcePath path = genrule.getSourcePathToOutput();
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context,
@@ -2389,9 +2399,10 @@ public class CachingBuildEngineTest {
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -2465,26 +2476,20 @@ public class CachingBuildEngineTest {
               pathResolver,
               ruleFinder);
 
-      // Prepare an input file that should appear in the dep file.
-      final Genrule genrule =
-          GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
-              .setOut("input")
-              .build(resolver, filesystem);
-      final Path input = pathResolver.getRelativePath(
-          Preconditions.checkNotNull(genrule.getSourcePathToOutput()));
-      filesystem.writeContentsToPath("contents", input);
-
       // Create a simple rule which just writes a file.
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
       BuildRuleParams params =
           new FakeBuildRuleParamsBuilder(target)
               .setProjectFilesystem(filesystem)
               .build();
+      final SourcePath input =
+          new PathSourcePath(filesystem, filesystem.getRootPath().getFileSystem().getPath("input"));
+      filesystem.touch(pathResolver.getRelativePath(input));
       final Path output = Paths.get("output");
       DepFileBuildRule rule =
           new DepFileBuildRule(params) {
             @AddToRuleKey
-            private final SourcePath path = new BuildTargetSourcePath(genrule.getBuildTarget());
+            private final SourcePath path = input;
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context,
@@ -2502,11 +2507,12 @@ public class CachingBuildEngineTest {
             }
             @Override
             public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
-              return ImmutableList.of(new PathSourcePath(filesystem, input));
+              return ImmutableList.of(input);
             }
+
             @Override
-            public Path getPathToOutput() {
-              return output;
+            public SourcePath getSourcePathToOutput() {
+              return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
             }
           };
 
@@ -2522,15 +2528,21 @@ public class CachingBuildEngineTest {
                           depFilefactory)))
               .build();
 
+      // Calculate expected rule keys.
+      RuleKey ruleKey = defaultRuleKeyFactory.build(rule);
+      RuleKeyAndInputs depFileKey =
+          depFilefactory.build(
+              rule,
+              ImmutableList.of(DependencyFileEntry.fromSourcePath(input, pathResolver)));
+
       // Seed the cache with the manifest and a referenced artifact.
-      RuleKey artifactKey = new RuleKey("bbbb");
       Manifest manifest = new Manifest();
       manifest.addEntry(
           fileHashCache,
-          artifactKey,
+          depFileKey.getRuleKey(),
           pathResolver,
-          ImmutableSet.of(new PathSourcePath(filesystem, input)),
-          ImmutableSet.of(new PathSourcePath(filesystem, input)));
+          ImmutableSet.of(input),
+          ImmutableSet.of(input));
       ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
       try (GZIPOutputStream outputStream = new GZIPOutputStream(byteArrayOutputStream)) {
         manifest.serialize(outputStream);
@@ -2552,7 +2564,16 @@ public class CachingBuildEngineTest {
               "stuff"));
       cache.store(
           ArtifactInfo.builder()
-              .addRuleKeys(artifactKey)
+              .addRuleKeys(depFileKey.getRuleKey())
+              .putMetadata(
+                  BuildInfo.MetadataKey.DEP_FILE_RULE_KEY,
+                  depFileKey.getRuleKey().toString())
+              .putMetadata(
+                  BuildInfo.MetadataKey.DEP_FILE,
+                  MAPPER.writeValueAsString(
+                      depFileKey.getInputs().stream()
+                          .map(pathResolver::getRelativePath)
+                          .collect(MoreCollectors.toImmutableList())))
               .build(),
           BorrowablePath.notBorrowablePath(artifact));
 
@@ -2562,6 +2583,27 @@ public class CachingBuildEngineTest {
       assertThat(
           getSuccess(result),
           equalTo(BuildRuleSuccessType.FETCHED_FROM_CACHE_MANIFEST_BASED));
+
+      // Verify that the result has been re-written to the cache with the expected meta-data.
+      for (RuleKey key : ImmutableSet.of(ruleKey, depFileKey.getRuleKey())) {
+        LazyPath fetchedArtifact = LazyPath.ofInstance(tmp.newFile("fetched_artifact.zip"));
+        CacheResult cacheResult = cache.fetch(key, fetchedArtifact);
+        assertThat(cacheResult.getType(), equalTo(CacheResultType.HIT));
+        assertThat(
+            cacheResult.getMetadata().get(BuildInfo.MetadataKey.RULE_KEY),
+            equalTo(ruleKey.toString()));
+        assertThat(
+            cacheResult.getMetadata().get(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY),
+            equalTo(depFileKey.getRuleKey().toString()));
+        assertThat(
+            cacheResult.getMetadata().get(BuildInfo.MetadataKey.DEP_FILE),
+            equalTo(
+                MAPPER.writeValueAsString(
+                    depFileKey.getInputs().stream()
+                        .map(pathResolver::getRelativePath)
+                        .collect(MoreCollectors.toImmutableList()))));
+        Files.delete(fetchedArtifact.get());
+      }
     }
   }
 
@@ -2721,7 +2763,7 @@ public class CachingBuildEngineTest {
 
       @Nullable
       @Override
-      public Path getPathToOutput() {
+      public SourcePath getSourcePathToOutput() {
         return null;
       }
 
@@ -2742,7 +2784,6 @@ public class CachingBuildEngineTest {
       public boolean hasStarted() {
         return started.availablePermits() == 1;
       }
-
     }
 
   }
@@ -3048,8 +3089,11 @@ public class CachingBuildEngineTest {
 
     @Override
     @Nullable
-    public Path getPathToOutput() {
-      return pathToOutputFile;
+    public SourcePath getSourcePathToOutput() {
+      if (pathToOutputFile == null) {
+        return null;
+      }
+      return new ExplicitBuildTargetSourcePath(getBuildTarget(), pathToOutputFile);
     }
 
     @Override
@@ -3194,10 +3238,12 @@ public class CachingBuildEngineTest {
 
     @Nullable
     @Override
-    public Path getPathToOutput() {
-      return output;
+    public SourcePath getSourcePathToOutput() {
+      if (output == null) {
+        return null;
+      }
+      return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
     }
-
   }
 
   private static class SleepStep extends AbstractExecutionStep {
@@ -3267,9 +3313,8 @@ public class CachingBuildEngineTest {
 
     @Nullable
     @Override
-    public Path getPathToOutput() {
+    public SourcePath getSourcePathToOutput() {
       return null;
     }
-
   }
 }

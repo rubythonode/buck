@@ -30,8 +30,8 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -281,7 +281,7 @@ public class HaskellCompileRule extends AbstractBuildRule {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
+      BuildContext buildContext,
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(getObjectDir());
     buildableContext.recordArtifact(getInterfaceDir());
@@ -296,13 +296,13 @@ public class HaskellCompileRule extends AbstractBuildRule {
           public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
             return ImmutableMap.<String, String>builder()
                 .putAll(super.getEnvironmentVariables(context))
-                .putAll(compiler.getEnvironment())
+                .putAll(compiler.getEnvironment(buildContext.getSourcePathResolver()))
                 .build();
           }
 
           @Override
-          protected ImmutableList<String> getShellCommandInternal(ExecutionContext execContext) {
-            SourcePathResolver resolver = context.getSourcePathResolver();
+          protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
+            SourcePathResolver resolver = buildContext.getSourcePathResolver();
             return ImmutableList.<String>builder()
                 .addAll(compiler.getCommandPrefix(resolver))
                 .addAll(flags)
@@ -316,7 +316,7 @@ public class HaskellCompileRule extends AbstractBuildRule {
                         Iterables.cycle("-main-is"),
                         OptionalCompat.asSet(main)))
                 .addAll(getPackageNameArgs())
-                .addAll(getPreprocessorFlags(context.getSourcePathResolver()))
+                .addAll(getPreprocessorFlags(buildContext.getSourcePathResolver()))
                 .add("-odir", getProjectFilesystem().resolve(getObjectDir()).toString())
                 .add("-hidir", getProjectFilesystem().resolve(getInterfaceDir()).toString())
                 .add("-stubdir", getProjectFilesystem().resolve(getStubDir()).toString())
@@ -325,7 +325,7 @@ public class HaskellCompileRule extends AbstractBuildRule {
                         .map(resolver::getAbsolutePath)
                         .map(Object::toString)
                         .collect(Collectors.joining(":")))
-                .addAll(getPackageArgs(context.getSourcePathResolver()))
+                .addAll(getPackageArgs(buildContext.getSourcePathResolver()))
                 .addAll(
                     sources.getSourcePaths().stream()
                         .map(resolver::getAbsolutePath)
@@ -348,15 +348,15 @@ public class HaskellCompileRule extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutput() {
-    return getInterfaceDir();
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getInterfaceDir());
   }
 
   public ImmutableList<SourcePath> getObjects() {
     ImmutableList.Builder<SourcePath> objects = ImmutableList.builder();
     for (String module : sources.getModuleNames()) {
       objects.add(
-          new BuildTargetSourcePath(
+          new ExplicitBuildTargetSourcePath(
               getBuildTarget(),
               getObjectDir().resolve(module.replace('.', File.separatorChar) + ".o")));
     }
@@ -368,12 +368,11 @@ public class HaskellCompileRule extends AbstractBuildRule {
   }
 
   public SourcePath getInterfaces() {
-    return new BuildTargetSourcePath(getBuildTarget(), getInterfaceDir());
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getInterfaceDir());
   }
 
   @VisibleForTesting
   protected ImmutableList<String> getFlags() {
     return flags;
   }
-
 }

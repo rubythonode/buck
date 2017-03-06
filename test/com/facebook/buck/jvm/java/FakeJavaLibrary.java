@@ -24,12 +24,12 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
@@ -95,13 +95,14 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   @Override
   public ImmutableSet<SourcePath> getImmediateClasspaths() {
-    return ImmutableSet.of(
-        new BuildTargetSourcePath(getBuildTarget(), getPathToOutput()));
+    return ImmutableSet.of(getSourcePathToOutput());
   }
 
   @Override
-  public Path getPathToOutput() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.jar");
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(
+        getBuildTarget(),
+        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.jar"));
   }
 
   @Override
@@ -122,7 +123,7 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
   public FakeJavaLibrary setJavaSrcs(ImmutableSortedSet<Path> srcs) {
     Preconditions.checkNotNull(srcs);
     this.srcs = FluentIterable.from(srcs)
-        .transform(SourcePaths.toSourcePath(new FakeProjectFilesystem()))
+        .transform(p -> (SourcePath) new PathSourcePath(new FakeProjectFilesystem(), p))
         .toSortedSet(Ordering.natural());
     return this;
   }
@@ -149,7 +150,7 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
-    collector.addClasspathEntry(this, new BuildTargetSourcePath(getBuildTarget()));
+    collector.addClasspathEntry(this, getSourcePathToOutput());
   }
 
   @Override

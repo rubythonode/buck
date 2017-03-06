@@ -30,7 +30,7 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.DependencyAggregationTestUtil;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -158,11 +158,11 @@ public class CxxBinaryDescriptionTest {
               .setSrcs(
                   ImmutableSortedSet.of(
                       SourceWithFlags.of(new FakeSourcePath("test/bar.cpp")),
-                      SourceWithFlags.of(new BuildTargetSourcePath(genSourceTarget))))
+                      SourceWithFlags.of(new DefaultBuildTargetSourcePath(genSourceTarget))))
               .setHeaders(
                   ImmutableSortedSet.of(
                       new FakeSourcePath("test/bar.h"),
-                      new BuildTargetSourcePath(genHeaderTarget)))
+                      new DefaultBuildTargetSourcePath(genHeaderTarget)))
               .setDeps(ImmutableSortedSet.of(depTarget));
 
     // Create the target graph.
@@ -316,7 +316,7 @@ public class CxxBinaryDescriptionTest {
     BuildRule binary = builder.build(resolver).getLinkRule();
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
-        Arg.stringify(((CxxLink) binary).getArgs()),
+        Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
         Matchers.hasItem(
             String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver))));
     assertThat(
@@ -355,7 +355,7 @@ public class CxxBinaryDescriptionTest {
     BuildRule binary = builder.build(resolver).getLinkRule();
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
-        Arg.stringify(((CxxLink) binary).getArgs()),
+        Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
         Matchers.hasItem(
             String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver))));
     assertThat(
@@ -392,7 +392,7 @@ public class CxxBinaryDescriptionTest {
     BuildRule binary = builder.build(resolver).getLinkRule();
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
-        Arg.stringify(((CxxLink) binary).getArgs()),
+        Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
         Matchers.not(
             Matchers.hasItem(
                 String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver)))));
@@ -423,10 +423,11 @@ public class CxxBinaryDescriptionTest {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     CxxBinary binary = binaryBuilder.build(resolver, filesystem, targetGraph);
     assertThat(binary.getLinkRule(), Matchers.instanceOf(CxxLink.class));
     assertThat(
-        Arg.stringify(((CxxLink) binary.getLinkRule()).getArgs()),
+        Arg.stringify(((CxxLink) binary.getLinkRule()).getArgs(), pathResolver),
         Matchers.hasItems("-L", "/another/path", "/some/path", "-la", "-ls"));
   }
 

@@ -237,7 +237,7 @@ public class CxxPythonExtensionDescription implements
                 String.format("%s/", cxxPlatform.getLd().resolve(ruleResolver).libOrigin()))));
 
     // Add object files into the args.
-    argsBuilder.addAll(SourcePathArg.from(pathResolver, picObjects.values()));
+    argsBuilder.addAll(SourcePathArg.from(picObjects.values()));
 
     return argsBuilder.build();
   }
@@ -372,7 +372,7 @@ public class CxxPythonExtensionDescription implements
     Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
     String moduleName = args.moduleName.orElse(params.getBuildTarget().getShortName());
     final Path module = baseModule.resolve(getExtensionName(moduleName));
-    return new CxxPythonExtension(params, pathResolver) {
+    return new CxxPythonExtension(params) {
 
       @Override
       protected BuildRule getExtension(

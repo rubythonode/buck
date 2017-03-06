@@ -39,9 +39,10 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.DependencyAggregationTestUtil;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -59,8 +60,8 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.LocationMacro;
-import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.ExportFile;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.Genrule;
@@ -125,7 +126,7 @@ public class CxxLibraryDescriptionTest {
               cxxPlatform.getFlavor(),
               headerVisibility);
       return Optional.of(
-          new BuildTargetSourcePath(
+          new ExplicitBuildTargetSourcePath(
               headerMapBuildTarget,
               HeaderSymlinkTreeWithHeaderMap.getPath(filesystem, headerMapBuildTarget)));
     } else {
@@ -212,13 +213,13 @@ public class CxxLibraryDescriptionTest {
         .setExportedHeaders(
             ImmutableSortedSet.of(
                 new FakeSourcePath(headerName),
-                new BuildTargetSourcePath(genHeaderTarget)))
+                new DefaultBuildTargetSourcePath(genHeaderTarget)))
         .setHeaders(
             ImmutableSortedSet.of(new FakeSourcePath(privateHeaderName)))
         .setSrcs(
             ImmutableSortedSet.of(
                 SourceWithFlags.of(new FakeSourcePath("test/bar.cpp")),
-                SourceWithFlags.of(new BuildTargetSourcePath(genSourceTarget))))
+                SourceWithFlags.of(new DefaultBuildTargetSourcePath(genSourceTarget))))
         .setFrameworks(
             ImmutableSortedSet.of(
                 FrameworkPath.ofSourcePath(new FakeSourcePath("/some/framework/path/s.dylib")),
@@ -264,7 +265,7 @@ public class CxxLibraryDescriptionTest {
                 Paths.get(headerName),
                 new FakeSourcePath(headerName),
                 Paths.get(genHeaderName),
-                new BuildTargetSourcePath(genHeaderTarget))));
+                new DefaultBuildTargetSourcePath(genHeaderTarget))));
     assertThat(
         publicHeaders.getHeaderMap(),
         equalTo(
@@ -386,6 +387,7 @@ public class CxxLibraryDescriptionTest {
         new BuildRuleResolver(
             prepopulateWithSandbox(target),
             new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     CxxLibraryBuilder ruleBuilder = new CxxLibraryBuilder(target, cxxBuckConfig)
         .setSoname(soname)
         .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("foo.cpp"))));
@@ -398,7 +400,7 @@ public class CxxLibraryDescriptionTest {
     Linker linker = cxxPlatform.getLd().resolve(resolver);
     ImmutableList<String> sonameArgs = ImmutableList.copyOf(linker.soname(soname));
     assertThat(
-        Arg.stringify(rule.getArgs()),
+        Arg.stringify(rule.getArgs(), pathResolver),
         hasItems(sonameArgs.toArray(new String[sonameArgs.size()])));
   }
 
@@ -415,6 +417,7 @@ public class CxxLibraryDescriptionTest {
     TargetGraph normalGraph = TargetGraphFactory.newInstance(normalBuilder.build());
     BuildRuleResolver resolver =
         new BuildRuleResolver(normalGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     CxxLibrary normal = (CxxLibrary) normalBuilder
         .setSrcs(
             ImmutableSortedSet.of(
@@ -427,8 +430,8 @@ public class CxxLibraryDescriptionTest {
     // Lookup the link whole flags.
     Linker linker = cxxPlatform.getLd().resolve(resolver);
     ImmutableList<String> linkWholeFlags =
-        FluentIterable.from(linker.linkWhole(new StringArg("sentinel")))
-            .transformAndConcat(Arg::stringifyList)
+        FluentIterable.from(linker.linkWhole(StringArg.of("sentinel")))
+            .transformAndConcat((input1) -> Arg.stringifyList(input1, pathResolver))
             .filter(Predicates.not("sentinel"::equals))
             .toList();
 
@@ -438,7 +441,7 @@ public class CxxLibraryDescriptionTest {
             cxxPlatform,
             Linker.LinkableDepType.STATIC);
     assertThat(
-        Arg.stringify(input.getArgs()),
+        Arg.stringify(input.getArgs(), pathResolver),
         not(hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()]))));
 
     // Create a cxx library using link whole.
@@ -464,7 +467,7 @@ public class CxxLibraryDescriptionTest {
             cxxPlatform,
             Linker.LinkableDepType.STATIC);
     assertThat(
-        Arg.stringify(linkWholeInput.getArgs()),
+        Arg.stringify(linkWholeInput.getArgs(), pathResolver),
         hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()])));
   }
 
@@ -520,11 +523,11 @@ public class CxxLibraryDescriptionTest {
     CxxLibraryBuilder cxxLibraryBuilder = new CxxLibraryBuilder(target, cxxBuckConfig)
         .setExportedHeaders(
             ImmutableSortedMap.of(
-                genHeaderName, new BuildTargetSourcePath(genHeaderTarget)))
+                genHeaderName, new DefaultBuildTargetSourcePath(genHeaderTarget)))
         .setSrcs(
             ImmutableSortedSet.of(
                 SourceWithFlags.of(new FakeSourcePath(sourceName)),
-                SourceWithFlags.of(new BuildTargetSourcePath(genSourceTarget))))
+                SourceWithFlags.of(new DefaultBuildTargetSourcePath(genSourceTarget))))
         .setFrameworks(
             ImmutableSortedSet.of(
                 FrameworkPath.ofSourcePath(new FakeSourcePath("/some/framework/path/s.dylib")),
@@ -568,7 +571,7 @@ public class CxxLibraryDescriptionTest {
         equalTo(
             ImmutableMap.<Path, SourcePath>of(
                 Paths.get(genHeaderName),
-                new BuildTargetSourcePath(genHeaderTarget))));
+                new DefaultBuildTargetSourcePath(genHeaderTarget))));
     assertThat(
         publicHeaders.getHeaderMap(),
         equalTo(
@@ -809,7 +812,7 @@ public class CxxLibraryDescriptionTest {
     BuildRule binary = builder.build(resolver);
     assertThat(binary, instanceOf(CxxLink.class));
     assertThat(
-        Arg.stringify(((CxxLink) binary).getArgs()),
+        Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
         hasItem(String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver))));
     assertThat(
         binary.getDeps(),
@@ -857,7 +860,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(lib.getDeps(), hasItem(loc));
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     assertThat(
-        Arg.stringify(lib.getArgs()),
+        Arg.stringify(lib.getArgs(), pathResolver),
         hasItem(
             containsString(pathResolver.getRelativePath(
                 Preconditions.checkNotNull(loc.getSourcePathToOutput())).toString())));
@@ -908,14 +911,14 @@ public class CxxLibraryDescriptionTest {
 
     assertThat(lib.getDeps(), hasItem(loc));
     assertThat(
-        Arg.stringify(lib.getArgs()),
+        Arg.stringify(lib.getArgs(), pathResolver),
         hasItem(
             String.format(
                 "-Wl,--version-script=%s",
                 pathResolver.getAbsolutePath(
                     Preconditions.checkNotNull(loc.getSourcePathToOutput())))));
     assertThat(
-        Arg.stringify(lib.getArgs()),
+        Arg.stringify(lib.getArgs(), pathResolver),
         not(hasItem(pathResolver.getAbsolutePath(loc.getSourcePathToOutput()).toString())));
   }
 
@@ -964,7 +967,7 @@ public class CxxLibraryDescriptionTest {
     assertThat(lib.getDeps(), not(hasItem(loc)));
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     assertThat(
-        Arg.stringify(lib.getArgs()),
+        Arg.stringify(lib.getArgs(), pathResolver),
         not(
             hasItem(
                 containsString(
@@ -1016,7 +1019,7 @@ public class CxxLibraryDescriptionTest {
         hasItem(loc));
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     assertThat(
-        Arg.stringify(nativeLinkableInput.getArgs()),
+        Arg.stringify(nativeLinkableInput.getArgs(), pathResolver),
         hasItem(
             containsString(
                 pathResolver.getRelativePath(
@@ -1071,7 +1074,7 @@ public class CxxLibraryDescriptionTest {
         hasItem(loc));
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     assertThat(
-        Arg.stringify(nativeLinkableInput.getArgs()),
+        Arg.stringify(nativeLinkableInput.getArgs(), pathResolver),
         hasItem(
             containsString(
                 pathResolver.getRelativePath(
@@ -1129,7 +1132,7 @@ public class CxxLibraryDescriptionTest {
         not(hasItem(loc)));
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     assertThat(
-        Arg.stringify(nativeLinkableInput.getArgs()),
+        Arg.stringify(nativeLinkableInput.getArgs(), pathResolver),
         not(
             hasItem(
                 containsString(
@@ -1269,11 +1272,12 @@ public class CxxLibraryDescriptionTest {
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(ruleBuilder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     CxxLibrary rule = (CxxLibrary) ruleBuilder.build(resolver);
     NativeLinkableInput input =
         rule.getNativeLinkTargetInput(CxxPlatformUtils.DEFAULT_PLATFORM);
     assertThat(
-        Arg.stringify(input.getArgs()),
+        Arg.stringify(input.getArgs(), pathResolver),
         hasItems("--flag", "--exported-flag"));
   }
 
@@ -1323,9 +1327,10 @@ public class CxxLibraryDescriptionTest {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(libraryBuilder.build());
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     CxxLink library = (CxxLink) libraryBuilder.build(resolver, filesystem, targetGraph);
     assertThat(
-        Arg.stringify(library.getArgs()),
+        Arg.stringify(library.getArgs(), pathResolver),
         hasItems("-L", "/another/path", "$SDKROOT/usr/lib", "-la", "-lz"));
   }
 

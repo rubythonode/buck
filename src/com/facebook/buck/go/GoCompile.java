@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.Tool;
@@ -145,7 +146,7 @@ public class GoCompile extends AbstractBuildRule {
     } else {
       steps.add(new GoCompileStep(
           getProjectFilesystem().getRootPath(),
-          compiler.getEnvironment(),
+          compiler.getEnvironment(context.getSourcePathResolver()),
           compiler.getCommandPrefix(context.getSourcePathResolver()),
           compilerFlags,
           packageName,
@@ -189,7 +190,7 @@ public class GoCompile extends AbstractBuildRule {
         steps.add(
             new GoAssembleStep(
                 getProjectFilesystem().getRootPath(),
-                assembler.getEnvironment(),
+                assembler.getEnvironment(context.getSourcePathResolver()),
                 assembler.getCommandPrefix(context.getSourcePathResolver()),
                 assemblerFlags,
                 asmSrc,
@@ -205,7 +206,7 @@ public class GoCompile extends AbstractBuildRule {
 
       steps.add(new GoPackStep(
           getProjectFilesystem().getRootPath(),
-          packer.getEnvironment(),
+          packer.getEnvironment(context.getSourcePathResolver()),
           packer.getCommandPrefix(context.getSourcePathResolver()),
           GoPackStep.Operation.APPEND,
           asmOutputs.build(),
@@ -216,8 +217,8 @@ public class GoCompile extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutput() {
-    return output;
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
   }
 
   @Override

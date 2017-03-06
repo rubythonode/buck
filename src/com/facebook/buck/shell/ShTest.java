@@ -74,7 +74,7 @@ public class ShTest
   private final ImmutableMap<String, Arg> env;
   @AddToRuleKey
   @SuppressWarnings("PMD.UnusedPrivateField")
-  private final ImmutableSortedSet<SourcePath> resources;
+  private final ImmutableSortedSet<? extends SourcePath> resources;
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
   private final boolean runTestSeparately;
@@ -82,17 +82,16 @@ public class ShTest
 
   protected ShTest(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       SourcePath test,
       ImmutableList<Arg> args,
       ImmutableMap<String, Arg> env,
-      ImmutableSortedSet<SourcePath> resources,
+      ImmutableSortedSet<? extends SourcePath> resources,
       Optional<Long> testRuleTimeoutMs,
       boolean runTestSeparately,
       Set<Label> labels,
       ImmutableSet<String> contacts) {
-    super(params, resolver);
+    super(params);
     this.ruleFinder = ruleFinder;
     this.test = test;
     this.args = args;
@@ -135,8 +134,8 @@ public class ShTest
         new RunShTestAndRecordResultStep(
             getProjectFilesystem(),
             pathResolver.getAbsolutePath(test),
-            Arg.stringify(args),
-            Arg.stringify(env),
+            Arg.stringify(args, pathResolver),
+            Arg.stringify(env, pathResolver),
             testRuleTimeoutMs,
             getBuildTarget().getFullyQualifiedName(),
             getPathToTestOutputResult());
@@ -200,7 +199,7 @@ public class ShTest
   @Override
   public Tool getExecutableCommand() {
     CommandTool.Builder builder = new CommandTool.Builder()
-        .addArg(new SourcePathArg(getResolver(), test))
+        .addArg(SourcePathArg.of(test))
         .addDeps(ruleFinder.filterBuildRuleInputs(resources));
 
     for (Arg arg : args) {
@@ -221,8 +220,8 @@ public class ShTest
         .setTarget(getBuildTarget())
         .setType("custom")
         .addCommand(pathResolver.getAbsolutePath(test).toString())
-        .addAllCommand(Arg.stringify(args))
-        .setEnv(Arg.stringify(env))
+        .addAllCommand(Arg.stringify(args, pathResolver))
+        .setEnv(Arg.stringify(env, pathResolver))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
         .build();

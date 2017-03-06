@@ -20,7 +20,7 @@ import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -30,17 +30,19 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 
-public class RemoteStateBasedFileHashCache implements FileHashCache {
+public class RemoteStateBasedFileHashCache implements ProjectFileHashCache {
   private static final Function<BuildJobStateFileHashEntry, HashCode>
       HASH_CODE_FROM_FILE_HASH_ENTRY =
       input -> HashCode.fromString(input.getHashCode());
 
+  private final ProjectFilesystem filesystem;
   private final Map<Path, HashCode> remoteFileHashes;
   private final Map<ArchiveMemberPath, HashCode> remoteArchiveHashes;
 
   public RemoteStateBasedFileHashCache(
       final ProjectFilesystem projectFilesystem,
       BuildJobStateFileHashes remoteFileHashes) {
+    this.filesystem = projectFilesystem;
     this.remoteFileHashes =
         Maps.transformValues(
             DistBuildFileHashes.indexEntriesByPath(projectFilesystem, remoteFileHashes),
@@ -54,7 +56,7 @@ public class RemoteStateBasedFileHashCache implements FileHashCache {
   @Override
   public HashCode get(Path path) throws IOException {
     return Preconditions.checkNotNull(
-        remoteFileHashes.get(path),
+        remoteFileHashes.get(filesystem.resolve(path)),
         "Path %s not in remote file hash.",
         path);
   }
@@ -67,19 +69,22 @@ public class RemoteStateBasedFileHashCache implements FileHashCache {
   @Override
   public HashCode get(ArchiveMemberPath archiveMemberPath) throws IOException {
     return Preconditions.checkNotNull(
-        remoteArchiveHashes.get(archiveMemberPath),
+        remoteArchiveHashes.get(
+            archiveMemberPath.withArchivePath(
+                filesystem.resolve(archiveMemberPath.getArchivePath()))),
         "Archive path %s not in remote file hash.",
         archiveMemberPath);
   }
 
   @Override
   public boolean willGet(Path path) {
-    return remoteFileHashes.containsKey(path);
+    return remoteFileHashes.containsKey(filesystem.resolve(path));
   }
 
   @Override
   public boolean willGet(ArchiveMemberPath archiveMemberPath) {
-    return remoteArchiveHashes.containsKey(archiveMemberPath);
+    return remoteArchiveHashes.containsKey(
+        archiveMemberPath.withArchivePath(filesystem.resolve(archiveMemberPath.getArchivePath())));
   }
 
   @Override
@@ -96,4 +101,10 @@ public class RemoteStateBasedFileHashCache implements FileHashCache {
   public void set(Path path, HashCode hashCode) throws IOException {
     throw new UnsupportedOperationException();
   }
+
+  @Override
+  public ProjectFilesystem getFilesystem() {
+    return filesystem;
+  }
+
 }

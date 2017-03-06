@@ -21,7 +21,7 @@ import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
@@ -84,13 +84,8 @@ public class WriteFile extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutput() {
-    return output;
-  }
-
-  @Override
   public SourcePath getSourcePathToOutput() {
-    return new BuildTargetSourcePath(getBuildTarget(), getPathToOutput());
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
   }
 
   public byte[] getFileContents() {

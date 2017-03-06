@@ -20,6 +20,10 @@ import com.facebook.buck.io.HashingDeterministicJarWriter;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.google.common.base.Preconditions;
+import com.google.common.io.ByteSource;
+
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.tree.ClassNode;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -55,10 +59,16 @@ class FilesystemStubJarWriter implements StubJarWriter {
   }
 
   @Override
-  public void writeClass(Path relativePath, ClassMirror stub) throws IOException {
-    try (InputStream contents = stub.getStubClassBytes().openStream()) {
+  public void writeClass(Path relativePath, ClassNode stub) throws IOException {
+    try (InputStream contents = getStubClassBytes(stub).openStream()) {
       jar.writeEntry(MorePaths.pathWithUnixSeparators(relativePath), contents);
     }
+  }
+
+  private static ByteSource getStubClassBytes(ClassNode node) {
+    ClassWriter writer = new ClassWriter(0);
+    node.accept(new AbiFilteringClassVisitor(writer));
+    return ByteSource.wrap(writer.toByteArray());
   }
 
   @Override

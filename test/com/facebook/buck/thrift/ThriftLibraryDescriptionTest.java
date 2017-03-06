@@ -34,7 +34,6 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
@@ -184,7 +183,6 @@ public class ThriftLibraryDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     String language = "fake";
@@ -256,7 +254,6 @@ public class ThriftLibraryDescriptionTest {
         ruleFinder);
     ThriftLibrary lib = new ThriftLibrary(
         unflavoredParams,
-        pathResolver,
         ImmutableSortedSet.of(),
         thriftIncludeSymlinkTree,
         ImmutableMap.of());
@@ -287,7 +284,7 @@ public class ThriftLibraryDescriptionTest {
         .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule"))
         .setOut(sourceName)
         .build(resolver);
-    SourcePath ruleSourcePath = new BuildTargetSourcePath(genrule.getBuildTarget());
+    SourcePath ruleSourcePath = genrule.getSourcePathToOutput();
 
     // Generate these rules using no deps and the genrule generated source.
     rules =
@@ -357,7 +354,6 @@ public class ThriftLibraryDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     BuildTarget unflavoredTarget = BuildTargetFactory.newInstance("//:thrift");
     BuildRuleParams unflavoredParams =
         new FakeBuildRuleParamsBuilder(unflavoredTarget).build();
@@ -381,7 +377,6 @@ public class ThriftLibraryDescriptionTest {
         createFakeSymlinkTree(depTarget, depIncludeRoot, ruleFinder);
     ThriftLibrary dep = new ThriftLibrary(
         new FakeBuildRuleParamsBuilder(depTarget).build(),
-        pathResolver,
         ImmutableSortedSet.of(),
         depIncludeSymlinkTree,
         ImmutableMap.of());
@@ -444,7 +439,7 @@ public class ThriftLibraryDescriptionTest {
         .newGenruleBuilder(genruleTarget)
         .setOut(thriftSourceName1)
         .build(resolver);
-    SourcePath thriftSource1 = new BuildTargetSourcePath(genrule.getBuildTarget());
+    SourcePath thriftSource1 = genrule.getSourcePathToOutput();
     final ImmutableList<String> thriftServices1 = ImmutableList.of();
 
     // Setup a normal thrift source file.
@@ -500,13 +495,13 @@ public class ThriftLibraryDescriptionTest {
                     genrule,
                     thriftRule,
                     thriftIncludeSymlinkTree),
-                src1.getCompileRule().getDeps());
+                resolver.getRule(src1.getCompileTarget()).getDeps());
             assertEquals(
                 ImmutableSortedSet.of(
                     genrule,
                     thriftRule,
                     thriftIncludeSymlinkTree),
-                src2.getCompileRule().getDeps());
+                resolver.getRule(src2.getCompileTarget()).getDeps());
 
             // Verify the language specific implicit rules are added correctly.
             assertEquals(

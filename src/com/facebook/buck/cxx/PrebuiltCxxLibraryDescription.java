@@ -36,6 +36,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -194,13 +195,13 @@ public class PrebuiltCxxLibraryDescription implements
     }
 
     // If we get here then this is referencing the output from a build rule.
-    // This always return a BuildTargetSourcePath
+    // This always return a ExplicitBuildTargetSourcePath
     Path p = filesystem.resolve(libDirPath);
     if (addedPathString.isPresent()) {
       p = p.resolve(addedPathString.get());
     }
     p = filesystem.relativize(p);
-    return new BuildTargetSourcePath(deps.iterator().next().getBuildTarget(), p);
+    return new ExplicitBuildTargetSourcePath(deps.iterator().next().getBuildTarget(), p);
   }
 
   public static String getSoname(
@@ -456,8 +457,7 @@ public class PrebuiltCxxLibraryDescription implements
                         cxxPlatform)))
             .addAllArgs(
                 cxxPlatform.getLd().resolve(ruleResolver).linkWhole(
-                    new SourcePathArg(
-                        pathResolver,
+                    SourcePathArg.of(
                         staticLibraryPath)))
             .build());
   }
@@ -629,7 +629,7 @@ public class PrebuiltCxxLibraryDescription implements
         new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
     final boolean headerOnly = args.headerOnly.orElse(false);
     final boolean forceStatic = args.forceStatic.orElse(false);
-    return new PrebuiltCxxLibrary(params, pathResolver) {
+    return new PrebuiltCxxLibrary(params) {
 
       private final Map<Pair<Flavor, Linker.LinkableDepType>, NativeLinkableInput>
           nativeLinkableCache = new HashMap<>();
@@ -894,7 +894,7 @@ public class PrebuiltCxxLibraryDescription implements
               linkerArgsBuilder.add(new RelativeLinkArg((PathSourcePath) sharedLibrary));
             } else {
               linkerArgsBuilder.add(
-                  new SourcePathArg(pathResolver, requireSharedLibrary(cxxPlatform, true)));
+                  SourcePathArg.of(requireSharedLibrary(cxxPlatform, true)));
             }
           } else {
             Preconditions.checkState(getPreferredLinkage(cxxPlatform) != Linkage.SHARED);
@@ -911,8 +911,7 @@ public class PrebuiltCxxLibraryDescription implements
                         args.libDir,
                         args.libName);
             SourcePathArg staticLibrary =
-                new SourcePathArg(
-                    pathResolver,
+                SourcePathArg.of(
                     staticLibraryPath);
             if (args.linkWhole) {
               Linker linker = cxxPlatform.getLd().resolve(ruleResolver);
@@ -1015,8 +1014,7 @@ public class PrebuiltCxxLibraryDescription implements
                     .addAllArgs(StringArg.from(getExportedLinkerFlags(cxxPlatform)))
                     .addAllArgs(
                         cxxPlatform.getLd().resolve(ruleResolver).linkWhole(
-                            new SourcePathArg(
-                                pathResolver,
+                            SourcePathArg.of(
                                 getStaticPicLibrary(cxxPlatform).get())))
                     .build();
               }

@@ -316,7 +316,8 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
    * should be handled as a build rule. This method hashes the given {@link BuildTargetSourcePath}
    * and invokes {@link #setBuildRule(BuildRule)} on the associated rule.
    */
-  protected final RuleKeyBuilder<RULE_KEY> setSourcePathAsRule(BuildTargetSourcePath sourcePath) {
+  protected final RuleKeyBuilder<RULE_KEY> setSourcePathAsRule(
+      BuildTargetSourcePath<?> sourcePath) {
     hasher.putBuildTargetSourcePath(sourcePath);
     return setBuildRule(ruleFinder.getRuleOrThrow(sourcePath));
   }
@@ -353,7 +354,12 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
     return this;
   }
 
-  protected RuleKeyBuilder<RULE_KEY> setNonHashingSourcePath(SourcePath sourcePath) {
+  /**
+   * Implementations may just forward to {@link #setNonHashingSourcePathDirectly}.
+   */
+  protected abstract RuleKeyBuilder<RULE_KEY> setNonHashingSourcePath(SourcePath sourcePath);
+
+  protected final RuleKeyBuilder<RULE_KEY> setNonHashingSourcePathDirectly(SourcePath sourcePath) {
     if (sourcePath instanceof BuildTargetSourcePath) {
       hasher.putNonHashingPath(resolver.getRelativePath(sourcePath).toString());
     } else if (sourcePath instanceof PathSourcePath) {

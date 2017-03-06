@@ -31,9 +31,9 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -131,8 +131,7 @@ public class HaskellBinaryDescription implements
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
     // Add the binary as the first argument.
-    executableBuilder.addArg(
-        new SourcePathArg(pathResolver, new BuildTargetSourcePath(binaryTarget)));
+    executableBuilder.addArg(SourcePathArg.of(new DefaultBuildTargetSourcePath(binaryTarget)));
 
     // Special handling for dynamically linked binaries.
     if (depType == Linker.LinkableDepType.SHARED) {
@@ -190,7 +189,7 @@ public class HaskellBinaryDescription implements
                     cxxPlatform,
                     "srcs",
                     args.srcs)));
-    linkArgsBuilder.addAll(SourcePathArg.from(pathResolver, compileRule.getObjects()));
+    linkArgsBuilder.addAll(SourcePathArg.from(compileRule.getObjects()));
 
     ImmutableList<String> linkFlags = linkFlagsBuilder.build();
     ImmutableList<com.facebook.buck.rules.args.Arg> linkArgs = linkArgsBuilder.build();
@@ -201,7 +200,6 @@ public class HaskellBinaryDescription implements
             binaryTarget,
             params,
             resolver,
-            pathResolver,
             ruleFinder,
             cxxPlatform,
             haskellConfig,
@@ -218,7 +216,7 @@ public class HaskellBinaryDescription implements
         ruleFinder,
         deps,
         executable,
-        linkRule.getPathToOutput());
+        linkRule.getSourcePathToOutput());
   }
 
   @Override

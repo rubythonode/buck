@@ -41,7 +41,6 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
@@ -175,8 +174,6 @@ public class AndroidBinaryGraphEnhancerTest {
         /* manifest */ new FakeSourcePath("java/src/com/facebook/base/AndroidManifest.xml"),
         new IdentityResourcesProvider(ImmutableList.of()),
         ImmutableList.of(),
-        ImmutableSortedSet.of(),
-        ImmutableSet.of(),
         /* resourceUnionPackage */ Optional.empty(),
         AndroidBinary.PackageType.DEBUG,
         false,
@@ -550,6 +547,7 @@ public class AndroidBinaryGraphEnhancerTest {
             new FakeBuildRule(
                 BuildTargetFactory.newInstance("//:resource_dep"),
                 pathResolver));
+    resourcesDep.setOutputFile("foo");
 
     AndroidResource resource =
         ruleResolver.addToIndex(
@@ -558,7 +556,7 @@ public class AndroidBinaryGraphEnhancerTest {
                     .appendExtraDeps(ImmutableSortedSet.of(resourcesDep)),
                 ruleFinder,
                 ImmutableSortedSet.of(),
-                new BuildTargetSourcePath(resourcesDep.getBuildTarget()),
+                resourcesDep.getSourcePathToOutput(),
                 ImmutableSortedMap.of(),
                 null,
                 null,

@@ -22,6 +22,8 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.base.Preconditions;
@@ -78,16 +80,18 @@ public class OcamlBuild extends AbstractBuildRule {
             context.getSourcePathResolver(),
             getProjectFilesystem(),
             ocamlContext,
-            cCompiler.getEnvironment(),
+            cCompiler.getEnvironment(context.getSourcePathResolver()),
             cCompiler.getCommandPrefix(context.getSourcePathResolver()),
-            cxxCompiler.getEnvironment(),
+            cxxCompiler.getEnvironment(context.getSourcePathResolver()),
             cxxCompiler.getCommandPrefix(context.getSourcePathResolver()),
             bytecodeOnly));
   }
 
   @Override
-  public Path getPathToOutput() {
-    return bytecodeOnly ? ocamlContext.getBytecodeOutput() : ocamlContext.getNativeOutput();
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(
+        getBuildTarget(),
+        bytecodeOnly ? ocamlContext.getBytecodeOutput() : ocamlContext.getNativeOutput());
   }
 
   @Override

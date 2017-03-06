@@ -148,7 +148,6 @@ public class HaskellLibraryDescription implements
     return Archive.from(
         target,
         baseParams,
-        pathResolver,
         ruleFinder,
         cxxPlatform,
         cxxBuckConfig.getArchiveContents(),
@@ -330,13 +329,12 @@ public class HaskellLibraryDescription implements
         target,
         baseParams,
         resolver,
-        pathResolver,
         ruleFinder,
         cxxPlatform,
         haskellConfig,
         Linker.LinkType.SHARED,
         ImmutableList.of(),
-        ImmutableList.copyOf(SourcePathArg.from(pathResolver, compileRule.getObjects())),
+        ImmutableList.copyOf(SourcePathArg.from(compileRule.getObjects())),
         Iterables.filter(baseParams.getDeclaredDeps().get(), NativeLinkable.class),
         Linker.LinkableDepType.SHARED);
   }
@@ -442,7 +440,7 @@ public class HaskellLibraryDescription implements
               type.get().getValue()));
     }
 
-    return new HaskellLibrary(params, pathResolver) {
+    return new HaskellLibrary(params) {
 
       @Override
       public HaskellCompileInput getCompileInput(
@@ -511,7 +509,7 @@ public class HaskellLibraryDescription implements
                     args);
             linkArgs =
                 ImmutableList.of(
-                    new SourcePathArg(getResolver(), rule.getSourcePathToOutput()));
+                    SourcePathArg.of(rule.getSourcePathToOutput()));
             break;
           default:
             throw new IllegalStateException();

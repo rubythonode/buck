@@ -200,7 +200,7 @@ public class CxxLuaExtensionDescription implements
                 cxxPlatform)));
 
     // Add object files into the args.
-    argsBuilder.addAll(SourcePathArg.from(pathResolver, picObjects.values()));
+    argsBuilder.addAll(SourcePathArg.from(picObjects.values()));
 
     return argsBuilder.build();
   }
@@ -284,7 +284,7 @@ public class CxxLuaExtensionDescription implements
     // get the real build rules via querying the action graph.
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-    return new CxxLuaExtension(params, pathResolver) {
+    return new CxxLuaExtension(params) {
 
       @Override
       public String getModule(CxxPlatform cxxPlatform) {

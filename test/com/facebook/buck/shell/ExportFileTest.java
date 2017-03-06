@@ -25,7 +25,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
@@ -45,6 +45,7 @@ import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.collect.ImmutableList;
 
 import org.hamcrest.Matchers;
@@ -191,7 +192,7 @@ public class ExportFileTest {
                 BuildTargetFactory.newInstance("//example:one"),
                 pathResolver));
 
-    builder.setSrc(new BuildTargetSourcePath(rule.getBuildTarget()));
+    builder.setSrc(new DefaultBuildTargetSourcePath(rule.getBuildTarget()));
     exportFile = builder.build(resolver, projectFilesystem);
     assertThat(
         pathResolver.filterInputsToCompareToOutput(exportFile.getSource()),
@@ -231,7 +232,10 @@ public class ExportFileTest {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem(root);
     Path temp = Paths.get("example_file");
 
-    FileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    FileHashCache hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
@@ -259,7 +263,10 @@ public class ExportFileTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
         filesystem);
 
-    hashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    hashCache =
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
     ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );

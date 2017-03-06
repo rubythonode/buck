@@ -105,10 +105,15 @@ public class ContentAgnosticRuleKeyFactory implements RuleKeyFactory<RuleKey> {
       @Override
       protected RuleKeyBuilder<RuleKey> setSourcePath(SourcePath sourcePath) throws IOException {
         if (sourcePath instanceof BuildTargetSourcePath) {
-          return setSourcePathAsRule((BuildTargetSourcePath) sourcePath);
+          return setSourcePathAsRule((BuildTargetSourcePath<?>) sourcePath);
         } else {
           return setSourcePathDirectly(sourcePath);
         }
+      }
+
+      @Override
+      protected RuleKeyBuilder<RuleKey> setNonHashingSourcePath(SourcePath sourcePath) {
+        return setNonHashingSourcePathDirectly(sourcePath);
       }
 
       @Override

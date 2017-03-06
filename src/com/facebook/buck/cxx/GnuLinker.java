@@ -25,7 +25,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
@@ -81,8 +81,8 @@ public class GnuLinker implements Linker {
   }
 
   @Override
-  public ImmutableMap<String, String> getEnvironment() {
-    return tool.getEnvironment();
+  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+    return tool.getEnvironment(resolver);
   }
 
   @Override
@@ -93,9 +93,9 @@ public class GnuLinker implements Linker {
   @Override
   public Iterable<Arg> linkWhole(Arg input) {
     return ImmutableList.of(
-        new StringArg("-Wl,--whole-archive"),
+        StringArg.of("-Wl,--whole-archive"),
         input,
-        new StringArg("-Wl,--no-whole-archive"));
+        StringArg.of("-Wl,--no-whole-archive"));
   }
 
   @Override
@@ -140,7 +140,6 @@ public class GnuLinker implements Linker {
   public ImmutableList<Arg> createUndefinedSymbolsLinkerArgs(
       BuildRuleParams baseParams,
       BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
       Iterable<? extends SourcePath> symbolFiles) {
@@ -152,7 +151,7 @@ public class GnuLinker implements Linker {
                     ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(symbolFiles))),
                 Suppliers.ofInstance(ImmutableSortedSet.of())),
             symbolFiles));
-    return ImmutableList.of(new SourcePathArg(pathResolver, rule.getSourcePathToOutput()));
+    return ImmutableList.of(SourcePathArg.of(rule.getSourcePathToOutput()));
   }
 
   @Override
@@ -171,7 +170,7 @@ public class GnuLinker implements Linker {
 
   @Override
   public Iterable<Arg> getSharedLibFlag() {
-    return ImmutableList.of(new StringArg("-shared"));
+    return ImmutableList.of(StringArg.of("-shared"));
   }
 
   @Override
@@ -245,13 +244,8 @@ public class GnuLinker implements Linker {
     }
 
     @Override
-    public Path getPathToOutput() {
-      return getLinkerScript();
-    }
-
-    @Override
     public SourcePath getSourcePathToOutput() {
-      return new BuildTargetSourcePath(getBuildTarget(), getPathToOutput());
+      return new ExplicitBuildTargetSourcePath(getBuildTarget(), getLinkerScript());
     }
 
   }

@@ -24,7 +24,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.CommandTool;
@@ -68,7 +67,6 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
   private PythonPackagedBinary(
       BuildRuleParams params,
       Supplier<ImmutableSortedSet<BuildRule>> originalDeclareDeps,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       PythonPlatform pythonPlatform,
       Tool builder,
@@ -84,7 +82,6 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
     super(
         params,
         originalDeclareDeps,
-        resolver,
         pythonPlatform,
         mainModule,
         components,
@@ -103,7 +100,6 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
 
   static PythonPackagedBinary from(
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       PythonPlatform pythonPlatform,
       Tool builder,
@@ -125,7 +121,6 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         params.getDeclaredDeps(),
-        resolver,
         ruleFinder,
         pythonPlatform,
         builder,
@@ -148,10 +143,7 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
   @Override
   public Tool getExecutableCommand() {
     return new CommandTool.Builder(pathToPexExecuter)
-        .addArg(
-            new SourcePathArg(
-                getResolver(),
-                new BuildTargetSourcePath(getBuildTarget(), getBinPath())))
+        .addArg(SourcePathArg.of(getSourcePathToOutput()))
         .build();
   }
 
@@ -161,7 +153,7 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
       BuildableContext buildableContext) {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    Path binPath = getBinPath();
+    Path binPath = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
 
     // Make sure the parent directory exists.
     steps.add(new MkdirStep(getProjectFilesystem(), binPath.getParent()));
@@ -184,7 +176,7 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
     steps.add(
         new PexStep(
             getProjectFilesystem(),
-            builder.getEnvironment(),
+            builder.getEnvironment(resolver),
             ImmutableList.<String>builder()
                 .addAll(builder.getCommandPrefix(resolver))
                 .addAll(buildArgs)
@@ -203,7 +195,7 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
             getComponents().isZipSafe().orElse(true)));
 
     // Record the executable package for caching.
-    buildableContext.recordArtifact(getBinPath());
+    buildableContext.recordArtifact(binPath);
 
     return steps.build();
   }

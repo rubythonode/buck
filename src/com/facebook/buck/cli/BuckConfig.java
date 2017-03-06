@@ -29,9 +29,9 @@ import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.BinaryBuildRuleToolProvider;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ConstantToolProvider;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -124,6 +124,8 @@ public class BuckConfig implements ConfigPathGetter {
     ignoreFieldsForDaemonRestartBuilder.put("cache", ImmutableSet.of(
         "dir", "dir_mode", "http_mode", "http_url", "mode", "slb_server_pool"));
     ignoreFieldsForDaemonRestartBuilder.put("client", ImmutableSet.of("id"));
+    ignoreFieldsForDaemonRestartBuilder.put("log", ImmutableSet.of(
+        "chrome_trace_generation", "compress_traces", "max_traces", "public_announcements"));
     ignoreFieldsForDaemonRestartBuilder.put("project", ImmutableSet.of(
         "ide_prompt", "xcode_focus_disable_build_with_buck"));
     IGNORE_FIELDS_FOR_DAEMON_RESTART = ignoreFieldsForDaemonRestartBuilder.build();
@@ -337,7 +339,7 @@ public class BuckConfig implements ConfigPathGetter {
     }
     try {
       BuildTarget target = getBuildTargetForFullyQualifiedTarget(value.get());
-      return Optional.of(new BuildTargetSourcePath(target));
+      return Optional.of(new DefaultBuildTargetSourcePath(target));
     } catch (BuildTargetParseException e) {
       checkPathExists(
           value.get(),
@@ -547,7 +549,10 @@ public class BuckConfig implements ConfigPathGetter {
     if (path == null) {
       return path;
     }
+    return resolveNonNullPathOutsideTheProjectFilesystem(path);
+  }
 
+  public Path resolveNonNullPathOutsideTheProjectFilesystem(Path path) {
     if (path.isAbsolute()) {
       return getPathFromVfs(path);
     }

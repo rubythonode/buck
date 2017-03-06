@@ -18,7 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
@@ -39,6 +39,7 @@ interface AbstractAndroidGraphEnhancementResult {
   Optional<PackageStringAssets> getPackageStringAssets();
   Optional<PreDexMerge> getPreDexMerge();
   Optional<ComputeExopackageDepsAbi> getComputeExopackageDepsAbi();
+  Optional<MergeAssets> getMergeAssets();
   Optional<Boolean> getPackageAssetLibraries();
 
   /**
@@ -55,7 +56,7 @@ interface AbstractAndroidGraphEnhancementResult {
   ImmutableSet<SourcePath> getClasspathEntriesToDex();
 
   default SourcePath getPrimaryResourcesApkPath() {
-    return new BuildTargetSourcePath(
+    return new ExplicitBuildTargetSourcePath(
         getAaptPackageResources().getBuildTarget(),
         getAaptPackageResources().getResourceApkPath());
   }
@@ -73,13 +74,12 @@ interface AbstractAndroidGraphEnhancementResult {
   APKModuleGraph getAPKModuleGraph();
 
   default ImmutableList<SourcePath> getPrimaryApkAssetZips() {
-    if (!getPackageStringAssets().isPresent()) {
-      return ImmutableList.of();
-    }
-    PackageStringAssets stringAssets = getPackageStringAssets().get();
-    return ImmutableList.of(
-        new BuildTargetSourcePath(
-            stringAssets.getBuildTarget(), stringAssets.getPathToStringAssetsZip())
-    );
+    ImmutableList.Builder<SourcePath> assetsZipsBuilder = ImmutableList.builder();
+    getPackageStringAssets().ifPresent(strings -> assetsZipsBuilder.add(
+        strings.getSourcePathToStringAssetsZip()));
+    getMergeAssets().ifPresent(assets -> assetsZipsBuilder.add(
+        assets.getSourcePathToOutput()
+    ));
+    return assetsZipsBuilder.build();
   }
 }

@@ -230,7 +230,8 @@ class DaemonicParserState {
           env =
               ImmutableMap.copyOf(
                   Maps.transformValues(
-                      Preconditions.checkNotNull((Map<String, String>) rawNode.get(ENV_META_RULE)),
+                      Preconditions.<Map<String, String>>checkNotNull(
+                          (Map<String, String>) rawNode.get(ENV_META_RULE)),
                       Optional::ofNullable));
         } else {
           withoutMetaIncludesBuilder.add(rawNode);
@@ -647,8 +648,10 @@ class DaemonicParserState {
 
   @Override
   public String toString() {
-    return String.format(
-        "memoized=%s",
-        cellPathToDaemonicState);
+    try (AutoCloseableLock readLock = cellStateLock.readLock()) {
+      return String.format(
+          "memoized=%s",
+          cellPathToDaemonicState);
+    }
   }
 }

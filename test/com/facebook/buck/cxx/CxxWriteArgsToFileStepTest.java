@@ -16,9 +16,11 @@
 
 package com.facebook.buck.cxx;
 
+import static org.easymock.EasyMock.createMock;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.step.ExecutionContext;
@@ -49,7 +51,7 @@ public class CxxWriteArgsToFileStepTest {
     runTestForArgFilePathAndOutputPath(
         fileListPath,
         Optional.empty(),
-        ImmutableList.of(new StringArg("-dummy"), new StringArg("\"")),
+        ImmutableList.of(StringArg.of("-dummy"), StringArg.of("\"")),
         ImmutableList.of("-dummy", "\""),
         projectFilesystem.getRootPath());
   }
@@ -64,7 +66,7 @@ public class CxxWriteArgsToFileStepTest {
     runTestForArgFilePathAndOutputPath(
         fileListPath,
         Optional.of(input -> "foo".equals(input) ? "bar" : input),
-        ImmutableList.of(new StringArg("-dummy"), new StringArg("foo")),
+        ImmutableList.of(StringArg.of("-dummy"), StringArg.of("foo")),
         ImmutableList.of("-dummy", "bar"),
         projectFilesystem.getRootPath());
 
@@ -82,11 +84,12 @@ public class CxxWriteArgsToFileStepTest {
     ExecutionContext context = TestExecutionContext.newInstance();
 
     // Create our CxxWriteArgsToFileStep to test.
-    CxxWriteArgsToFileStep step = new CxxWriteArgsToFileStep(
+    CxxWriteArgsToFileStep step = CxxWriteArgsToFileStep.create(
         argFilePath,
         inputArgs,
         escaper,
-        currentCellPath);
+        currentCellPath,
+        createMock(SourcePathResolver.class));
 
     step.execute(context);
 

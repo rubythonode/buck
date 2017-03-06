@@ -34,16 +34,15 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.ExportDependencies;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
@@ -304,7 +303,7 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithResolver
   }
 
   private Optional<SourcePath> sourcePathForOutputJar() {
-    return outputJar.map(SourcePaths.getToBuildTargetSourcePath(getBuildTarget())::apply);
+    return outputJar.map(input -> new ExplicitBuildTargetSourcePath(getBuildTarget(), input));
   }
 
   static Path getOutputJarPath(BuildTarget target, ProjectFilesystem filesystem) {
@@ -589,8 +588,8 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithResolver
 
   @Override
   @Nullable
-  public Path getPathToOutput() {
-    return outputJar.orElse(null);
+  public SourcePath getSourcePathToOutput() {
+    return outputJar.map(o -> new ExplicitBuildTargetSourcePath(getBuildTarget(), o)).orElse(null);
   }
 
   @Override
@@ -611,7 +610,7 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithResolver
     if (outputJar.isPresent()) {
       collector.addClasspathEntry(
           this,
-          new BuildTargetSourcePath(getBuildTarget(), outputJar.get()));
+          new ExplicitBuildTargetSourcePath(getBuildTarget(), outputJar.get()));
     }
     if (proguardConfig.isPresent()) {
       collector.addProguardConfig(getBuildTarget(), proguardConfig.get());
@@ -653,5 +652,4 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithResolver
         Preconditions.checkNotNull(depFileOutputPath),
         deps);
   }
-
 }

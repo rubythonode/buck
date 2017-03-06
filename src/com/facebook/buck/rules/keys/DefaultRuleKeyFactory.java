@@ -147,7 +147,7 @@ public class DefaultRuleKeyFactory implements RuleKeyFactory<RuleKey> {
       protected RuleKeyBuilder<RuleKeyResult<RuleKey>> setSourcePath(SourcePath sourcePath)
           throws IOException {
         if (sourcePath instanceof BuildTargetSourcePath) {
-          return setSourcePathAsRule((BuildTargetSourcePath) sourcePath);
+          return setSourcePathAsRule((BuildTargetSourcePath<?>) sourcePath);
         } else {
 
           // Add `PathSourcePath`s to our tracked inputs.
@@ -159,10 +159,21 @@ public class DefaultRuleKeyFactory implements RuleKeyFactory<RuleKey> {
       }
 
       @Override
+      protected RuleKeyBuilder<RuleKeyResult<RuleKey>> setNonHashingSourcePath(
+          SourcePath sourcePath) {
+        try {
+          // The default rulekeys must include the hash of the source path to properly propagate
+          // changes to dependent rulekeys.
+          return setSourcePath(sourcePath);
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+
+      @Override
       public RuleKeyResult<RuleKey> build() {
         return new RuleKeyResult<>(buildRuleKey(), deps.build(), inputs.build());
       }
-
     };
   }
 

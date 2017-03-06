@@ -30,7 +30,9 @@ import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Functions;
+import com.google.common.collect.ImmutableList;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -40,7 +42,9 @@ public class SanitizedArgTest {
   private RuleKeyBuilder<RuleKey> createRuleKeyBuilder() {
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     FileHashCache fileHashCache =
-        DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem);
+        new StackedFileHashCache(
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem)));
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
@@ -48,15 +52,21 @@ public class SanitizedArgTest {
     return new UncachedRuleKeyBuilder(
         ruleFinder,
         resolver,
-        DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem),
+        fileHashCache,
         new DefaultRuleKeyFactory(0, fileHashCache, resolver, ruleFinder));
   }
 
   @Test
   public void stringify() {
+    SourcePathResolver pathResolver = new SourcePathResolver(
+        new SourcePathRuleFinder(
+            new BuildRuleResolver(
+                TargetGraph.EMPTY,
+                new DefaultTargetNodeToBuildRuleTransformer())));
+
     SanitizedArg arg = new SanitizedArg(Functions.constant("sanitized"), "unsanitized");
     assertThat(
-        Arg.stringifyList(arg),
+        Arg.stringifyList(arg, pathResolver),
         Matchers.contains("unsanitized"));
   }
 

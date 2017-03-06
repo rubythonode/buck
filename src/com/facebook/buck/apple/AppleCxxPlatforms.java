@@ -382,10 +382,17 @@ public class AppleCxxPlatforms {
     whitelistBuilder.add("^" + Pattern.quote(sdkPaths.getPlatformPath().toString() +
                          "/Developer/Library/Frameworks") + "\\/.*");
     for (Path toolchainPath : sdkPaths.getToolchainPaths()) {
-      whitelistBuilder.add("^" + Pattern.quote(toolchainPath.toString()) + "\\/.*");
+      LOG.debug("Apple toolchain path: %s", toolchainPath);
+      try {
+        whitelistBuilder.add("^" + Pattern.quote(toolchainPath.toRealPath().toString()) + "\\/.*");
+      } catch (IOException e) {
+        LOG.debug(e, "Apple toolchain path could not be resolved: %s", toolchainPath);
+      }
     }
     HeaderVerification headerVerification =
         config.getHeaderVerification().withPlatformWhitelist(whitelistBuilder.build());
+    LOG.debug("Headers verification platform whitelist: %s",
+        headerVerification.getPlatformWhitelist());
 
     CxxPlatform cxxPlatform = CxxPlatforms.build(
         targetFlavor,
@@ -458,7 +465,8 @@ public class AppleCxxPlatforms {
         .setStubBinary(stubBinaryPath)
         .setLldb(lldb)
         .setCodesignAllocate(
-            getOptionalTool("codesign_allocate", toolSearchPaths, executableFinder, version));
+            getOptionalTool("codesign_allocate", toolSearchPaths, executableFinder, version))
+        .setCodesignProvider(appleConfig.getCodesignProvider());
 
     return platformBuilder.build();
   }

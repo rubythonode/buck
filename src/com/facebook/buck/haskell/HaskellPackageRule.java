@@ -23,8 +23,8 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -236,14 +236,14 @@ public class HaskellPackageRule extends AbstractBuildRule {
   }
 
   @Override
-  public Path getPathToOutput() {
-    return getPackageDb();
+  public SourcePath getSourcePathToOutput() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPackageDb());
   }
 
   public HaskellPackage getPackage() {
     return HaskellPackage.builder()
         .setInfo(packageInfo)
-        .setPackageDb(new BuildTargetSourcePath(getBuildTarget(), getPackageDb()))
+        .setPackageDb(new ExplicitBuildTargetSourcePath(getBuildTarget(), getPackageDb()))
         .addAllLibraries(libraries)
         .addAllInterfaces(interfaces)
         .build();
@@ -277,7 +277,7 @@ public class HaskellPackageRule extends AbstractBuildRule {
     public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
       return ImmutableMap.<String, String>builder()
           .putAll(super.getEnvironmentVariables(context))
-          .putAll(ghcPkg.getEnvironment())
+          .putAll(ghcPkg.getEnvironment(resolver))
           .putAll(env)
           .build();
     }

@@ -51,6 +51,7 @@ import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.concurrent.MoreFutures;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
@@ -348,6 +349,19 @@ public class CachingBuildEngine implements BuildEngine {
     };
   }
 
+  private void fillMissingBuildMetadataFromCache(
+      CacheResult cacheResult,
+      BuildInfoRecorder buildInfoRecorder,
+      String... names) {
+    Preconditions.checkState(cacheResult.getType() == CacheResultType.HIT);
+    for (String name : names) {
+      String value = cacheResult.getMetadata().get(name);
+      if (value != null) {
+        buildInfoRecorder.addBuildMetadata(name, value);
+      }
+    }
+  }
+
   private AsyncFunction<List<BuildResult>, Optional<BuildResult>> checkCaches(
       final BuildRule rule,
       final BuildEngineBuildContext context,
@@ -442,6 +456,7 @@ public class CachingBuildEngine implements BuildEngine {
                 performManifestBasedCacheFetch(
                     rule,
                     context,
+                    buildInfoRecorder,
                     manifestKey.get());
             if (manifestResult.isPresent()) {
               return Futures.immediateFuture(manifestResult);
@@ -502,13 +517,25 @@ public class CachingBuildEngine implements BuildEngine {
       // 2. Rule key cache lookup.
       ListenableFuture<CacheResult> rulekeyCacheResult =
           cacheActivityService.submit(
-              () -> tryToFetchArtifactFromBuildCacheAndOverlayOnTopOfProjectFilesystem(
-                  rule,
-                  defaultRuleKey,
-                  buildContext.getArtifactCache(),
-                  // TODO(shs96c): This should be a shared between all tests, not one per cell
-                  rule.getProjectFilesystem(),
-                  buildContext),
+              () -> {
+                CacheResult cacheResult =
+                    tryToFetchArtifactFromBuildCacheAndOverlayOnTopOfProjectFilesystem(
+                        rule,
+                        defaultRuleKey,
+                        buildContext.getArtifactCache(),
+                        // TODO(shs96c): This should be a shared between all tests, not one per cell
+                        rule.getProjectFilesystem(),
+                        buildContext);
+                if (cacheResult.getType().isSuccess()) {
+                  fillMissingBuildMetadataFromCache(
+                      cacheResult,
+                      buildInfoRecorder,
+                      BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY,
+                      BuildInfo.MetadataKey.DEP_FILE_RULE_KEY,
+                      BuildInfo.MetadataKey.DEP_FILE);
+                }
+                return cacheResult;
+              },
               CACHE_CHECK_RESOURCE_AMOUNTS);
 
       return Futures.transformAsync(
@@ -589,13 +616,14 @@ public class CachingBuildEngine implements BuildEngine {
       throws IOException {
 
     // Create a new `DefaultFileHashCache` to prevent caching from interfering with verification.
-    FileHashCache fileHashCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
+    ProjectFileHashCache fileHashCache =
+        DefaultFileHashCache.createDefaultFileHashCache(filesystem);
 
     // Verify each path from the recorded path hashes entry matches the actual on-disk version.
     for (Map.Entry<String, String> ent : recordedPathHashes.entrySet()) {
       Path path = filesystem.getPath(ent.getKey());
       HashCode cachedHashCode = HashCode.fromString(ent.getValue());
-      HashCode realHashCode = fileHashCache.get(filesystem.resolve(path));
+      HashCode realHashCode = fileHashCache.get(path);
       if (!realHashCode.equals(cachedHashCode)) {
         LOG.debug(
             "%s: recorded hash for \"%s\" doesn't match actual hash: %s (cached) != %s (real).",
@@ -880,58 +908,83 @@ public class CachingBuildEngine implements BuildEngine {
 
                 // If the rule key has changed (and is not already in the cache), we need to push
                 // the artifact to cache using the new key.
-                if (success.shouldUploadResultingArtifact()) {
-                  ruleKeys.add(
-                      keyFactories.getDefaultRuleKeyFactory().build(rule));
-                }
+                ruleKeys.add(keyFactories.getDefaultRuleKeyFactory().build(rule));
 
                 // If the input-based rule key has changed, we need to push the artifact to cache
                 // using the new key.
-                if (SupportsInputBasedRuleKey.isSupported(rule) &&
-                    success.shouldUploadResultingArtifactInputBased()) {
-                  ruleKeys.addAll(
-                      OptionalCompat.asSet(onDiskBuildInfo.getRuleKey(
-                          BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY)));
+                if (SupportsInputBasedRuleKey.isSupported(rule)) {
+                  Optional<RuleKey> calculatedRuleKey =
+                      calculateInputBasedRuleKey(rule, buildContext.getEventBus());
+                  Optional<RuleKey> onDiskRuleKey =
+                      onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY);
+                  Optional<RuleKey> metaDataRuleKey =
+                      buildInfoRecorder
+                          .getBuildMetadataFor(BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY)
+                          .map(RuleKey::new);
+                  Preconditions.checkState(
+                      calculatedRuleKey.equals(onDiskRuleKey),
+                      "%s (%s): %s: invalid on-disk input-based rule key: %s != %s",
+                      rule.getBuildTarget(),
+                      rule.getType(),
+                      success,
+                      calculatedRuleKey,
+                      onDiskRuleKey);
+                  Preconditions.checkState(
+                      calculatedRuleKey.equals(metaDataRuleKey),
+                      "%s: %s: invalid meta-data input-based rule key: %s != %s",
+                      rule.getBuildTarget(),
+                      success,
+                      calculatedRuleKey,
+                      metaDataRuleKey);
+                  ruleKeys.addAll(OptionalCompat.asSet(calculatedRuleKey));
                 }
 
                 // If the manifest-based rule key has changed, we need to push the artifact to cache
                 // using the new key.
-                if (useManifestCaching(rule) &&
-                    success.shouldUploadResultingArtifactManifestBased()) {
-                  ruleKeys.addAll(
-                      OptionalCompat.asSet(onDiskBuildInfo.getRuleKey(
-                          BuildInfo.MetadataKey.DEP_FILE_RULE_KEY)));
+                if (useManifestCaching(rule)) {
+                  Optional<RuleKey> onDiskRuleKey =
+                      onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY);
+                  Optional<RuleKey> metaDataRuleKey =
+                      buildInfoRecorder
+                          .getBuildMetadataFor(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY)
+                          .map(RuleKey::new);
+                  Preconditions.checkState(
+                      onDiskRuleKey.equals(metaDataRuleKey),
+                      "%s: %s: inconsistent meta-data and on-disk dep-file rule key: %s != %s",
+                      rule.getBuildTarget(),
+                      success,
+                      onDiskRuleKey,
+                      metaDataRuleKey);
+                  ruleKeys.addAll(OptionalCompat.asSet(onDiskRuleKey));
                 }
 
-                // If we have any rule keys to push to the cache with, do the upload now.
-                if (!ruleKeys.isEmpty()) {
-                  try {
+                // Do the actual upload.
+                try {
 
-                    // Verify that the recorded path hashes are accurate.
-                    Optional<String> recordedPathHashes =
-                        buildInfoRecorder.getBuildMetadataFor(
-                            BuildInfo.MetadataKey.RECORDED_PATH_HASHES);
-                    if (recordedPathHashes.isPresent() &&
-                        !verifyRecordedPathHashes(
-                            rule.getBuildTarget(),
-                            rule.getProjectFilesystem(),
-                            recordedPathHashes.get())) {
-                      return;
-                    }
-
-                    // Push to cache.
-                    buildInfoRecorder.performUploadToArtifactCache(
-                        ImmutableSet.copyOf(ruleKeys),
-                        buildContext.getArtifactCache(),
-                        buildContext.getEventBus());
-
-                  } catch (Throwable t) {
-                    buildContext.getEventBus().post(
-                        ThrowableConsoleEvent.create(
-                            t,
-                            "Error uploading to cache for %s.",
-                            rule));
+                  // Verify that the recorded path hashes are accurate.
+                  Optional<String> recordedPathHashes =
+                      buildInfoRecorder.getBuildMetadataFor(
+                          BuildInfo.MetadataKey.RECORDED_PATH_HASHES);
+                  if (recordedPathHashes.isPresent() &&
+                      !verifyRecordedPathHashes(
+                          rule.getBuildTarget(),
+                          rule.getProjectFilesystem(),
+                          recordedPathHashes.get())) {
+                    return;
                   }
+
+                  // Push to cache.
+                  buildInfoRecorder.performUploadToArtifactCache(
+                      ImmutableSet.copyOf(ruleKeys),
+                      buildContext.getArtifactCache(),
+                      buildContext.getEventBus());
+
+                } catch (Throwable t) {
+                  buildContext.getEventBus().post(
+                      ThrowableConsoleEvent.create(
+                          t,
+                          "Error uploading to cache for %s.",
+                          rule));
                 }
 
               }
@@ -973,7 +1026,9 @@ public class CachingBuildEngine implements BuildEngine {
                   }
 
                   // If this rule is cacheable, upload it to the cache.
-                  if (outputSize.isPresent() && shouldUploadToCache(rule, outputSize.get())) {
+                  if (success.shouldUploadResultingArtifact() &&
+                      outputSize.isPresent() &&
+                      shouldUploadToCache(rule, outputSize.get())) {
                     uploadToCache(success);
                   }
 
@@ -1183,47 +1238,51 @@ public class CachingBuildEngine implements BuildEngine {
     return seen.size();
   }
 
-  private ListenableFuture<RuleKey> calculateRuleKey(
+  private synchronized ListenableFuture<RuleKey> calculateRuleKey(
       final BuildRule rule,
       final BuildEngineBuildContext context) {
-    return ruleKeys.computeIfAbsent(
-        rule.getBuildTarget(),
-        target -> {
+    ListenableFuture<RuleKey> ruleKey = ruleKeys.get(rule.getBuildTarget());
+    if (ruleKey == null) {
 
-          // Grab all the dependency rule key futures.  Since our rule key calculation depends on
-          // this one, we need to wait for them to complete.
-          ListenableFuture<List<RuleKey>> depKeys =
-              Futures.transformAsync(
-                  ruleDeps.get(rule),
-                  deps -> {
-                    List<ListenableFuture<RuleKey>> depKeys1 =
-                        Lists.newArrayListWithExpectedSize(rule.getDeps().size());
-                    for (BuildRule dep : deps) {
-                      depKeys1.add(calculateRuleKey(dep, context));
-                    }
-                    return Futures.allAsList(depKeys1);
-                  },
-                  serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
-
-          final RuleKeyFactories keyFactories = ruleKeyFactories.apply(rule.getProjectFilesystem());
-
-          // Setup a future to calculate this rule key once the dependencies have been calculated.
-          return Futures.transform(
-              depKeys,
-              new Function<List<RuleKey>, RuleKey>() {
-                @Override
-                public RuleKey apply(List<RuleKey> input) {
-                  try (BuildRuleEvent.Scope scope =
-                           BuildRuleEvent.ruleKeyCalculationScope(
-                               context.getEventBus(),
-                               rule,
-                               keyFactories.getDefaultRuleKeyFactory())) {
-                    return keyFactories.getDefaultRuleKeyFactory().build(rule);
-                  }
+      // Grab all the dependency rule key futures.  Since our rule key calculation depends on this
+      // one, we need to wait for them to complete.
+      ListenableFuture<List<RuleKey>> depKeys =
+          Futures.transformAsync(
+              ruleDeps.get(rule),
+              deps -> {
+                List<ListenableFuture<RuleKey>> depKeys1 =
+                    Lists.newArrayListWithExpectedSize(rule.getDeps().size());
+                for (BuildRule dep : deps) {
+                  depKeys1.add(calculateRuleKey(dep, context));
                 }
+                return Futures.allAsList(depKeys1);
               },
               serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
-        });
+
+      final RuleKeyFactories keyFactories = ruleKeyFactories.apply(rule.getProjectFilesystem());
+
+      // Setup a future to calculate this rule key once the dependencies have been calculated.
+      ruleKey = Futures.transform(
+          depKeys,
+          new Function<List<RuleKey>, RuleKey>() {
+            @Override
+            public RuleKey apply(List<RuleKey> input) {
+              try (BuildRuleEvent.Scope scope =
+                       BuildRuleEvent.ruleKeyCalculationScope(
+                           context.getEventBus(),
+                           rule,
+                           keyFactories.getDefaultRuleKeyFactory())) {
+                return keyFactories.getDefaultRuleKeyFactory().build(rule);
+              }
+            }
+          },
+          serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
+
+      // Record the rule key future.
+      ruleKeys.put(rule.getBuildTarget(), ruleKey);
+    }
+
+    return ruleKey;
   }
 
   @Override
@@ -1653,6 +1712,7 @@ public class CachingBuildEngine implements BuildEngine {
   private Optional<BuildResult> performManifestBasedCacheFetch(
       final BuildRule rule,
       final BuildEngineBuildContext context,
+      BuildInfoRecorder buildInfoRecorder,
       RuleKeyAndInputs manifestKey)
       throws IOException {
     Preconditions.checkArgument(useManifestCaching(rule));
@@ -1716,10 +1776,16 @@ public class CachingBuildEngine implements BuildEngine {
             context);
 
     if (cacheResult.getType().isSuccess()) {
-      return Optional.of(BuildResult.success(
-          rule,
-          BuildRuleSuccessType.FETCHED_FROM_CACHE_MANIFEST_BASED,
-          cacheResult));
+      fillMissingBuildMetadataFromCache(
+          cacheResult,
+          buildInfoRecorder,
+          BuildInfo.MetadataKey.DEP_FILE_RULE_KEY,
+          BuildInfo.MetadataKey.DEP_FILE);
+      return Optional.of(
+          BuildResult.success(
+              rule,
+              BuildRuleSuccessType.FETCHED_FROM_CACHE_MANIFEST_BASED,
+              cacheResult));
     }
     return Optional.empty();
 
@@ -1775,11 +1841,18 @@ public class CachingBuildEngine implements BuildEngine {
           context);
 
     if (cacheResult.getType().isSuccess()) {
-      return Optional.of(BuildResult.success(
-          rule,
-          BuildRuleSuccessType.FETCHED_FROM_CACHE_INPUT_BASED,
-          cacheResult));
+      fillMissingBuildMetadataFromCache(
+          cacheResult,
+          buildInfoRecorder,
+          BuildInfo.MetadataKey.DEP_FILE_RULE_KEY,
+          BuildInfo.MetadataKey.DEP_FILE);
+      return Optional.of(
+          BuildResult.success(
+              rule,
+              BuildRuleSuccessType.FETCHED_FROM_CACHE_INPUT_BASED,
+              cacheResult));
     }
+
     return Optional.empty();
   }
 

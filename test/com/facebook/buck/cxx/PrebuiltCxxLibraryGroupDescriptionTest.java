@@ -22,13 +22,11 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -88,7 +86,6 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   public void staticLink() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath path = new FakeSourcePath("include");
     NativeLinkable lib =
@@ -103,9 +100,9 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
-                    new StringArg("--something"),
-                    new SourcePathArg(pathResolver, path),
-                    new StringArg("--something-else"))
+                    StringArg.of("--something"),
+                    SourcePathArg.of(path),
+                    StringArg.of("--something-else"))
                 .build()));
   }
 
@@ -113,7 +110,6 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   public void staticPicLink() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath path = new FakeSourcePath("include");
     NativeLinkable lib =
@@ -128,9 +124,9 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
-                    new StringArg("--something"),
-                    new SourcePathArg(pathResolver, path),
-                    new StringArg("--something-else"))
+                    StringArg.of("--something"),
+                    SourcePathArg.of(path),
+                    StringArg.of("--something-else"))
                 .build()));
   }
 
@@ -139,7 +135,6 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   public void sharedLink() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath lib1 = new FakeSourcePath("dir/lib1.so");
     PathSourcePath lib2 = new FakeSourcePath("dir/lib2.so");
@@ -160,9 +155,9 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
-                    new StringArg("--something"),
-                    new SourcePathArg(pathResolver, lib1),
-                    new StringArg("--something-else"),
+                    StringArg.of("--something"),
+                    SourcePathArg.of(lib1),
+                    StringArg.of("--something-else"),
                     new RelativeLinkArg(lib2))
                 .build()));
   }
@@ -188,7 +183,6 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
   public void providedSharedLibs() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath lib1 = new FakeSourcePath("dir/lib1.so");
     SourcePath lib2 = new FakeSourcePath("dir/lib2.so");
@@ -205,8 +199,8 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
-                    new SourcePathArg(pathResolver, lib1),
-                    new SourcePathArg(pathResolver, lib2))
+                    SourcePathArg.of(lib1),
+                    SourcePathArg.of(lib2))
                 .build()));
     assertThat(
         lib.getSharedLibraries(CxxPlatformUtils.DEFAULT_PLATFORM),
@@ -256,13 +250,12 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
         new PrebuiltCxxLibraryGroupBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setStaticLink(ImmutableList.of("$(lib 0)"))
             .setStaticLibs(
-                ImmutableList.of(new BuildTargetSourcePath(cxxGenruleBuilder.getTarget())));
+                ImmutableList.of(new DefaultBuildTargetSourcePath(cxxGenruleBuilder.getTarget())));
 
     BuildRuleResolver resolver =
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(cxxGenruleBuilder.build(), builder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     CxxGenrule cxxGenrule = (CxxGenrule) cxxGenruleBuilder.build(resolver);
     NativeLinkable library = (NativeLinkable) builder.build(resolver);
@@ -271,7 +264,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
             CxxPlatformUtils.DEFAULT_PLATFORM,
             Linker.LinkableDepType.STATIC);
     SourcePath lib = cxxGenrule.getGenrule(CxxPlatformUtils.DEFAULT_PLATFORM);
-    assertThat(input.getArgs(), Matchers.contains(new SourcePathArg(pathResolver, lib)));
+    assertThat(input.getArgs(), Matchers.contains(SourcePathArg.of(lib)));
   }
 
   @Test
