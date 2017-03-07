@@ -35,6 +35,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
@@ -307,15 +308,14 @@ public class CxxTestDescription implements
     CxxTestType type = constructorArg.framework.orElse(getDefaultTestType());
     switch (type) {
       case GTEST: {
-        deps.add(cxxBuckConfig.getGtestDep());
-        boolean useDefaultTestMain = constructorArg.useDefaultTestMain.orElse(true);
-        if (useDefaultTestMain) {
-          deps.add(cxxBuckConfig.getGtestDefaultTestMainDep());
+        cxxBuckConfig.getGtestDep().ifPresent(deps::add);
+        if (constructorArg.useDefaultTestMain.orElse(true)) {
+          cxxBuckConfig.getGtestDefaultTestMainDep().ifPresent(deps::add);
         }
         break;
       }
       case BOOST: {
-        deps.add(cxxBuckConfig.getBoostTestDep());
+        cxxBuckConfig.getBoostTestDep().ifPresent(deps::add);
         break;
       }
       default: {
@@ -372,6 +372,7 @@ public class CxxTestDescription implements
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
       A args,
+      Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       final Class<U> metadataClass) throws NoSuchBuildTargetException {
     if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class) ||
         !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {

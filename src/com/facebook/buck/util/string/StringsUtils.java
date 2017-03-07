@@ -14,22 +14,15 @@
  * under the License.
  */
 
-package com.facebook.buck.rules;
+package com.facebook.buck.util.string;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.versions.Version;
-import com.google.common.collect.ImmutableMap;
+public class StringsUtils {
+  private StringsUtils() {}
 
-import java.util.Optional;
-
-public interface MetadataProvidingDescription<T>  {
-
-  <A extends T, U> Optional<U> createMetadata(
-      BuildTarget buildTarget,
-      BuildRuleResolver resolver,
-      A args,
-      Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
-      Class<U> metadataClass)
-      throws NoSuchBuildTargetException;
+  public static int compareStrings(String a, String b) {
+    if (a == b) {
+      return 0;
+    }
+    return a.compareTo(b);
+  }
 }
