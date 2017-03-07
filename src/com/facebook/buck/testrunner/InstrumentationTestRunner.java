@@ -161,7 +161,7 @@ public class InstrumentationTestRunner {
 
     if (this.instrumentationApkPath != null) {
       DdmPreferences.setTimeOut(60000);
-      device.installPackage(this.instrumentationApkPath, true);
+      device.installPackage(this.instrumentationApkPath, true, "-g");
       if (this.apkUnderTestPath != null) {
         device.installPackage(this.apkUnderTestPath, true, "-g");
       }

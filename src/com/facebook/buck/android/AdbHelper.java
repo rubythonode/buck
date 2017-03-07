@@ -641,7 +641,7 @@ public class AdbHelper {
       if (installViaSd) {
         reason = deviceInstallPackageViaSd(device, apk.getAbsolutePath());
       } else {
-        device.installPackage(apk.getAbsolutePath(), true);
+        device.installPackage(apk.getAbsolutePath(), true, "-g");
       }
       if (reason != null) {
         console.printBuildFailure(String.format("Failed to install apk on %s: %s.", name, reason));
