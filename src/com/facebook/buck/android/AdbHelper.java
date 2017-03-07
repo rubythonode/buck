@@ -749,7 +749,7 @@ public class AdbHelper {
       // Copy APK to device
       device.pushFile(apk, remotePackage);
       // Install
-      device.installRemotePackage(remotePackage, true);
+      device.installRemotePackage(remotePackage, true, "-g");
       // Delete temporary file
       device.removeRemotePackage(remotePackage);
       return null;
