@@ -16,6 +16,8 @@
 
 package com.facebook.buck.testrunner;
 
+import static com.facebook.buck.android.AdbHelper.installExtraArgs;
+
 import com.android.ddmlib.AndroidDebugBridge;
 import com.android.ddmlib.DdmPreferences;
 import com.android.ddmlib.IDevice;
@@ -161,9 +163,9 @@ public class InstrumentationTestRunner {
 
     if (this.instrumentationApkPath != null) {
       DdmPreferences.setTimeOut(60000);
-      device.installPackage(this.instrumentationApkPath, true, "-g");
+      device.installPackage(this.instrumentationApkPath, true, installExtraArgs(device));
       if (this.apkUnderTestPath != null) {
-        device.installPackage(this.apkUnderTestPath, true, "-g");
+        device.installPackage(this.apkUnderTestPath, true, installExtraArgs(device));
       }
     }
 

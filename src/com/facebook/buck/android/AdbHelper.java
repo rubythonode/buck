@@ -641,7 +641,7 @@ public class AdbHelper {
       if (installViaSd) {
         reason = deviceInstallPackageViaSd(device, apk.getAbsolutePath());
       } else {
-        device.installPackage(apk.getAbsolutePath(), true, "-g");
+        device.installPackage(apk.getAbsolutePath(), true, installExtraArgs(device));
       }
       if (reason != null) {
         console.printBuildFailure(String.format("Failed to install apk on %s: %s.", name, reason));
@@ -749,13 +749,18 @@ public class AdbHelper {
       // Copy APK to device
       device.pushFile(apk, remotePackage);
       // Install
-      device.installRemotePackage(remotePackage, true, "-g");
+      device.installRemotePackage(remotePackage, true, installExtraArgs(device));
       // Delete temporary file
       device.removeRemotePackage(remotePackage);
       return null;
     } catch (Throwable t) {
       return String.valueOf(t.getMessage());
     }
+  }
+
+  public static String[] installExtraArgs(IDevice device) {
+    // If the device is 23 or newer, we can use -g to auto-grant runtime permissions on install.
+    return device.getVersion().getApiLevel() >= 23 ? new String[] {"-g"} : new String[0];
   }
 
   /**
