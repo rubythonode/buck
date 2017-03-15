@@ -16,6 +16,7 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -25,14 +26,16 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.RmStep;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class JsLibrary extends AbstractBuildRule {
 
@@ -61,17 +64,13 @@ public class JsLibrary extends AbstractBuildRule {
       BuildContext context,
       BuildableContext buildableContext) {
     final SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
-    final String fileArgs = sources.stream()
-        .map(sourcePathResolver::getAbsolutePath)
-        .map(Path::toString)
-        .collect(Collectors.joining(" "));
 
     final Path outputPath = sourcePathResolver.getAbsolutePath(getSourcePathToOutput());
     final String jobArgs = String.format(
-        "library %s %s %s",
-        formatDepArgs(sourcePathResolver),
-        fileArgs,
-        outputPath);
+        "library %s --out %s %s",
+        JsUtil.resolveMapJoin(libraryDependencies, sourcePathResolver, p -> "--lib " + p),
+        outputPath,
+        JsUtil.resolveMapJoin(sources, sourcePathResolver, Path::toString));
     return ImmutableList.of(
         new RmStep(getProjectFilesystem(), outputPath),
         JsUtil.workerShellStep(
@@ -79,8 +78,7 @@ public class JsLibrary extends AbstractBuildRule {
             jobArgs,
             getBuildTarget(),
             sourcePathResolver,
-            getProjectFilesystem())
-    );
+            getProjectFilesystem()));
   }
 
   @Override
@@ -90,14 +88,14 @@ public class JsLibrary extends AbstractBuildRule {
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.json"));
   }
 
-  private String formatDepArgs(SourcePathResolver sourcePathResolver) {
-    if (libraryDependencies.isEmpty()) {
-      return "";
-    } else {
-      return libraryDependencies.stream()
-          .map(sourcePathResolver::getAbsolutePath)
-          .map(Path::toString)
-          .collect(Collectors.joining(" --dep ", "--dep ", ""));
-    }
+  Stream<BuildTarget> getLibraryDependencies(SourcePathRuleFinder ruleFinder) {
+    return libraryDependencies.stream()
+        .map(sourcePath ->
+            ruleFinder.getRule(sourcePath).orElseThrow(() -> new HumanReadableException(
+                "js_library %s has '%s' as a lib, but js_library can only have other " +
+                    "js_library targets as lib",
+                getBuildTarget(),
+                sourcePath)
+            ).getBuildTarget());
   }
 }

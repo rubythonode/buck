@@ -163,6 +163,7 @@ public class CachingBuildEngine implements BuildEngine {
 
   private final RuleDepsCache ruleDeps;
   private final Optional<UnskippedRulesTracker> unskippedRulesTracker;
+  private final BuildRuleDurationTracker buildRuleDurationTracker = new BuildRuleDurationTracker();
 
   public CachingBuildEngine(
       CachingBuildEngineDelegate cachingBuildEngineDelegate,
@@ -281,10 +282,9 @@ public class CachingBuildEngine implements BuildEngine {
     return resultFuture != null && MoreFutures.isSuccess(resultFuture);
   }
 
-  @Nullable
   @Override
   public RuleKey getRuleKey(BuildTarget buildTarget) {
-    return Futures.getUnchecked(ruleKeys.get(buildTarget));
+    return Preconditions.checkNotNull(Futures.getUnchecked(ruleKeys.get(buildTarget)));
   }
 
   // Dispatch and return a future resolving to a list of all results of this rules dependencies.
@@ -333,6 +333,7 @@ public class CachingBuildEngine implements BuildEngine {
             try (BuildRuleEvent.Scope scope = BuildRuleEvent.resumeSuspendScope(
                 buildContext.getEventBus(),
                 rule,
+                buildRuleDurationTracker,
                 ruleKeyFactory.getDefaultRuleKeyFactory())) {
               executeCommandsNowThatDepsAreBuilt(
                   rule,
@@ -498,6 +499,7 @@ public class CachingBuildEngine implements BuildEngine {
              BuildRuleEvent.resumeSuspendScope(
                  buildContext.getEventBus(),
                  rule,
+                 buildRuleDurationTracker,
                  ruleKeyFactory.getDefaultRuleKeyFactory())) {
 
       // 1. Check if it's already built.
@@ -994,9 +996,11 @@ public class CachingBuildEngine implements BuildEngine {
                 Optional<HashCode> outputHash = Optional.empty();
                 Optional<BuildRuleSuccessType> successType = Optional.empty();
 
-                buildContext.getEventBus().logVerboseAndPost(
-                    LOG,
-                    BuildRuleEvent.resumed(rule, keyFactories.getDefaultRuleKeyFactory()));
+                BuildRuleEvent.Resumed resumedEvent = BuildRuleEvent.resumed(
+                    rule,
+                    buildRuleDurationTracker,
+                    keyFactories.getDefaultRuleKeyFactory());
+                buildContext.getEventBus().logVerboseAndPost(LOG, resumedEvent);
 
                 if (input.getStatus() == BuildRuleStatus.FAIL) {
 
@@ -1048,27 +1052,26 @@ public class CachingBuildEngine implements BuildEngine {
                 }
 
                 // Log the result to the event bus.
-                buildContext.getEventBus().logVerboseAndPost(
-                    LOG,
-                    BuildRuleEvent.finished(
-                        rule,
-                        BuildRuleKeys.builder()
-                            .setRuleKey(keyFactories.getDefaultRuleKeyFactory().build(rule))
-                            .setInputRuleKey(
-                                onDiskBuildInfo.getRuleKey(
-                                    BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY))
-                            .setDepFileRuleKey(
-                                onDiskBuildInfo.getRuleKey(
-                                    BuildInfo.MetadataKey.DEP_FILE_RULE_KEY))
-                            .setManifestRuleKey(
-                                onDiskBuildInfo.getRuleKey(
-                                    BuildInfo.MetadataKey.MANIFEST_KEY))
-                            .build(),
-                        input.getStatus(),
-                        input.getCacheResult(),
-                        successType,
-                        outputHash,
-                        outputSize));
+                BuildRuleEvent.Finished finished = BuildRuleEvent.finished(
+                    resumedEvent,
+                    BuildRuleKeys.builder()
+                        .setRuleKey(keyFactories.getDefaultRuleKeyFactory().build(rule))
+                        .setInputRuleKey(
+                            onDiskBuildInfo.getRuleKey(
+                                BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY))
+                        .setDepFileRuleKey(
+                            onDiskBuildInfo.getRuleKey(
+                                BuildInfo.MetadataKey.DEP_FILE_RULE_KEY))
+                        .setManifestRuleKey(
+                            onDiskBuildInfo.getRuleKey(
+                                BuildInfo.MetadataKey.MANIFEST_KEY))
+                        .build(),
+                    input.getStatus(),
+                    input.getCacheResult(),
+                    successType,
+                    outputHash,
+                    outputSize);
+                buildContext.getEventBus().logVerboseAndPost(LOG, finished);
               }
 
               @Override
@@ -1264,16 +1267,14 @@ public class CachingBuildEngine implements BuildEngine {
       // Setup a future to calculate this rule key once the dependencies have been calculated.
       ruleKey = Futures.transform(
           depKeys,
-          new Function<List<RuleKey>, RuleKey>() {
-            @Override
-            public RuleKey apply(List<RuleKey> input) {
-              try (BuildRuleEvent.Scope scope =
-                       BuildRuleEvent.ruleKeyCalculationScope(
-                           context.getEventBus(),
-                           rule,
-                           keyFactories.getDefaultRuleKeyFactory())) {
-                return keyFactories.getDefaultRuleKeyFactory().build(rule);
-              }
+          (List<RuleKey> input) -> {
+            try (BuildRuleEvent.Scope scope =
+                     BuildRuleEvent.ruleKeyCalculationScope(
+                         context.getEventBus(),
+                         rule,
+                         buildRuleDurationTracker,
+                         keyFactories.getDefaultRuleKeyFactory())) {
+              return keyFactories.getDefaultRuleKeyFactory().build(rule);
             }
           },
           serviceByAdjustingDefaultWeightsTo(RULE_KEY_COMPUTATION_RESOURCE_AMOUNTS));
@@ -1914,6 +1915,7 @@ public class CachingBuildEngine implements BuildEngine {
                BuildRuleEvent.resumeSuspendScope(
                    eventBus,
                    rule,
+                   buildRuleDurationTracker,
                    ruleKeyFactory.getDefaultRuleKeyFactory())) {
         return delegate.apply(input);
       }

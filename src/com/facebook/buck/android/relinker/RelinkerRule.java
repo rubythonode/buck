@@ -56,6 +56,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Set;
 
+import javax.annotation.Nullable;
+
 class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideScheduleRule {
 
   @AddToRuleKey
@@ -67,10 +69,9 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
   @AddToRuleKey
   private final Tool objdump;
   @AddToRuleKey
-  private final Boolean isRelinkable;
-  @AddToRuleKey
   private final ImmutableList<Arg> linkerArgs;
   @AddToRuleKey
+  @Nullable
   private final Linker linker;
 
   private final BuildRuleParams buildRuleParams;
@@ -86,15 +87,13 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
       Tool objdump,
       CxxBuckConfig cxxBuckConfig,
       SourcePath baseLibSourcePath,
-      boolean isRelinkable,
-      Linker linker,
+      @Nullable Linker linker,
       ImmutableList<Arg> linkerArgs) {
     super(withDepsFromArgs(buildRuleParams, ruleFinder, linkerArgs), resolver);
     this.pathResolver = resolver;
     this.cpuType = cpuType;
     this.objdump = objdump;
     this.cxxBuckConfig = cxxBuckConfig;
-    this.isRelinkable = isRelinkable;
     this.linkerArgs = linkerArgs;
     this.buildRuleParams = buildRuleParams;
     this.symbolsNeededPaths = symbolsNeededPaths;
@@ -152,7 +151,7 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
       final BuildableContext buildableContext) {
 
     final ImmutableList.Builder<Step> relinkerSteps = ImmutableList.builder();
-    if (isRelinkable) {
+    if (linker != null) {
       ImmutableList<Arg> args = ImmutableList.<Arg>builder()
           .addAll(linkerArgs)
           .add(
@@ -183,7 +182,7 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
           public StepExecutionResult execute(ExecutionContext context)
               throws IOException, InterruptedException {
             ImmutableSet<String> symbolsNeeded = readSymbolsNeeded();
-            if (!isRelinkable) {
+            if (linker == null) {
               getProjectFilesystem().copyFile(getBaseLibPath(), getLibFilePath());
               buildableContext.recordArtifact(getLibFilePath());
             } else {

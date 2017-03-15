@@ -244,10 +244,9 @@ public class NativeRelinker {
         ruleFinder,
         ImmutableSortedSet.copyOf(Lists.transform(relinkerDeps, getSymbolsNeeded)),
         cpuType,
-        nativePlatforms.get(cpuType).getObjdump(),
+        Preconditions.checkNotNull(nativePlatforms.get(cpuType)).getObjdump(),
         cxxBuckConfig,
         source,
-        linker != null,
         linker,
         linkerArgs);
   }

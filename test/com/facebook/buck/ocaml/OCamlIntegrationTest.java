@@ -34,6 +34,7 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxSourceRuleFactoryHelper;
+import com.facebook.buck.cxx.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -83,10 +84,13 @@ public class OCamlIntegrationTest {
         ImmutableMap.copyOf(System.getenv()),
         new DefaultCellPathResolver(filesystem.getRootPath(), rawConfig));
 
-    OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(
-        Platform.detect(),
-        filesystem,
-        buckConfig);
+    OcamlBuckConfig ocamlBuckConfig =
+        new OcamlBuckConfig(
+            buckConfig,
+            DefaultCxxPlatforms.build(
+                Platform.detect(),
+                filesystem,
+                new CxxBuckConfig(buckConfig)));
 
     assumeTrue(ocamlBuckConfig.getOcamlCompiler().isPresent());
     assumeTrue(ocamlBuckConfig.getOcamlBytecodeCompiler().isPresent());
@@ -481,13 +485,13 @@ public class OCamlIntegrationTest {
     BuildTarget headerSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
             cclib,
-            cxxPlatform.getFlavor(),
-            HeaderVisibility.PRIVATE);
+            HeaderVisibility.PRIVATE,
+            cxxPlatform.getFlavor());
     BuildTarget exportedHeaderSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
             cclib,
-            cxxPlatform.getFlavor(),
-            HeaderVisibility.PUBLIC);
+            HeaderVisibility.PUBLIC,
+            CxxPlatformUtils.getHeaderModeForDefaultPlatform(tmp.getRoot()).getFlavor());
 
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();

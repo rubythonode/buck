@@ -320,9 +320,8 @@ public class Parser {
     };
 
     GraphTraversable<BuildTarget> groupExpander = target -> {
-      TargetGroup group = groups.get(target);
-      Preconditions.checkNotNull(
-          group,
+      TargetGroup group = Preconditions.checkNotNull(
+          groups.get(target),
           "SANITY FAILURE: Tried to expand group %s but it doesn't exist.",
           target);
       return Iterators.filter(group.iterator(), groups::containsKey);
@@ -359,11 +358,10 @@ public class Parser {
             groupExpander.findChildren(groupTarget),
             target -> {
               TargetGroup group = groups.get(target);
-              Preconditions.checkNotNull(
+              return Preconditions.checkNotNull(
                   group,
                   "SANITY FAILURE: Tried to expand group %s but it doesn't exist.",
                   target);
-              return group;
             });
         if (!replacements.isEmpty()) {
           // TODO(tophyr): Stop duplicating target lists
@@ -664,7 +662,7 @@ public class Parser {
 
   @Subscribe
   public void onFileSystemChange(WatchEvent<?> event) {
-    LOG.debug(
+    LOG.verbose(
         "Parser watched event %s %s",
         event.kind(),
         WatchEvents.createContextString(event));

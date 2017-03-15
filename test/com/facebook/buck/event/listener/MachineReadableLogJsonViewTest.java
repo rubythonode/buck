@@ -20,13 +20,13 @@ import static org.hamcrest.MatcherAssert.assertThat;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
-import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.log.PerfTimesStats;
 import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleDurationTracker;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleKeys;
 import com.facebook.buck.rules.BuildRuleStatus;
@@ -38,10 +38,8 @@ import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.autosparse.AutoSparseStateEvents;
-import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
 
 import org.junit.Before;
@@ -49,7 +47,6 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.Random;
 
 public class MachineReadableLogJsonViewTest {
@@ -63,6 +60,7 @@ public class MachineReadableLogJsonViewTest {
   private long threadUserNanoTime;
   private long threadId;
   private BuildId buildId;
+  private BuildRuleDurationTracker durationTracker;
 
   @Before
   public void setUp() {
@@ -73,6 +71,7 @@ public class MachineReadableLogJsonViewTest {
     threadUserNanoTime = new Random().nextLong();
     threadId = 0;
     buildId = new BuildId("Test");
+    durationTracker = new BuildRuleDurationTracker();
   }
 
   @Test
@@ -126,9 +125,11 @@ public class MachineReadableLogJsonViewTest {
   @Test
   public void testBuildRuleEvent() throws IOException {
     BuildRule rule = FakeBuildRule.newEmptyInstance("//fake:rule");
+    BuildRuleEvent.Started started = BuildRuleEvent.started(rule, durationTracker);
+    started.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
     BuildRuleEvent.Finished event =
         BuildRuleEvent.finished(
-            rule,
+            started,
             BuildRuleKeys.builder()
                 .setRuleKey(new RuleKey("aaaa"))
                 .setInputRuleKey(Optional.of(new RuleKey("bbbb")))
@@ -157,12 +158,8 @@ public class MachineReadableLogJsonViewTest {
 
   @Test
   public void testPerfTimesStatsEvent() throws IOException {
-    PerfTimesEventListener.PerfTimesEvent event =
-        new PerfTimesEventListener(
-            new BuckEventBus(
-                new DefaultClock(), buildId),
-            new DefaultExecutionEnvironment(ImmutableMap.of(), new Properties()))
-            .new PerfTimesEvent(
+    PerfTimesEventListener.PerfTimesEvent.Complete event =
+        PerfTimesEventListener.PerfTimesEvent.complete(
             PerfTimesStats.builder()
                 .setPythonTimeMs(4L)
                 .setInitTimeMs(8L)

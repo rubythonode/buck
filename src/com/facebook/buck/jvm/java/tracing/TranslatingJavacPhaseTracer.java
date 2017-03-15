@@ -77,7 +77,7 @@ public class TranslatingJavacPhaseTracer implements JavacPhaseTracer, AutoClosea
       ClassLoaderCache classLoaderCache,
       JavacEventSink eventSink,
       JavaCompiler.CompilationTask task,
-      Object next) {
+      @Nullable Object next) {
     try {
       final ClassLoader tracingTaskListenerClassLoader =
           PluginLoader.getPluginClassLoader(classLoaderCache, task);
@@ -152,7 +152,7 @@ public class TranslatingJavacPhaseTracer implements JavacPhaseTracer, AutoClosea
   }
 
   @Override
-  public void beginAnalyze(String filename, String typename) {
+  public void beginAnalyze(@Nullable String filename, @Nullable String typename) {
     if (isProcessingAnnotations) {
       logger.endAnnotationProcessingRound(true);
       logger.endAnnotationProcessing();

@@ -20,6 +20,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Preconditions;
 
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.CmdLineException;
@@ -42,13 +43,15 @@ public class ArtifactConfig {
     public List<String> artifacts = new ArrayList<>();
 
     @Option(name = "-repo", usage = "Root of your repository")
-    public String buckRepoRoot;
+    @Nullable
+    public String buckRepoRoot = null;
 
     @Option(name = "-third-party", usage = "Directory to place dependencies in")
     public String thirdParty = "third-party";
 
     @Option(name = "-local-maven", usage = "Local Maven repository")
-    public String mavenLocalRepo;
+    @Nullable
+    public String mavenLocalRepo = null;
 
     @Option(name = "-maven", usage = "Maven URI(s)")
     public List<String> repositoryURIs = new ArrayList<>();
@@ -57,14 +60,15 @@ public class ArtifactConfig {
     public List<String> visibility = new ArrayList<>();
 
     @Option(name = "-json", usage = "JSON configuration file for artifacts, paths, and Maven repos")
-    public String artifactConfigJson;
+    @Nullable
+    public String artifactConfigJson = null;
 
     @Option(name = "-help", help = true)
     public boolean showHelp;
   }
 
   public static class Repository {
-    public String url;
+    private @Nullable String url;
     public @Nullable String user;
     public @Nullable String password;
 
@@ -72,6 +76,10 @@ public class ArtifactConfig {
 
     public Repository(String url) {
       this.url = url;
+    }
+
+    public String getUrl() {
+      return Preconditions.checkNotNull(url);
     }
   }
 

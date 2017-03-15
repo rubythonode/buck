@@ -188,6 +188,7 @@ public class BuildCommand extends AbstractCommand {
   @Option(
       name = OUT_LONG_ARG,
       usage = "Copies the output of the lone build target to this path.")
+  @Nullable
   private Path outputPathForSingleBuildTarget;
 
   @Option(
@@ -492,9 +493,8 @@ public class BuildCommand extends AbstractCommand {
             loneTarget));
         return 1;
       } else {
-        SourcePath output = rule.getSourcePathToOutput();
-        Preconditions.checkNotNull(
-            output,
+        SourcePath output = Preconditions.checkNotNull(
+            rule.getSourcePathToOutput(),
             "%s specified a build target that does not have an output file: %s",
             OUT_LONG_ARG,
             loneTarget);
@@ -726,6 +726,7 @@ public class BuildCommand extends AbstractCommand {
         params.getActionGraphCache().getActionGraph(
             params.getBuckEventBus(),
             params.getBuckConfig().isActionGraphCheckingEnabled(),
+            params.getBuckConfig().isSkipActionGraphCache(),
             targetGraphAndBuildTargets.getTargetGraph(),
             params.getBuckConfig().getKeySeed()));
 

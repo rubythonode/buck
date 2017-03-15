@@ -90,9 +90,13 @@ public final class CxxInferEnhancer {
       CxxPlatform cxxPlatform,
       CxxConstructorArg args) {
     InferFlavors.checkNoInferFlavors(buildTarget.getFlavors());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return CxxDescriptionEnhancer.parseCxxSources(
         buildTarget,
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)),
+        ruleResolver,
+        ruleFinder,
+        pathResolver,
         cxxPlatform,
         args);
   }
@@ -336,13 +340,11 @@ public final class CxxInferEnhancer {
   computePreprocessorInputForCxxLibraryDescriptionArg(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
       CxxLibraryDescription.Arg args,
       HeaderSymlinkTree headerSymlinkTree,
       ImmutableList<String> includeDirs,
       Optional<SymlinkTree> sandboxTree) throws NoSuchBuildTargetException {
-    boolean shouldCreatePublicHeadersSymlinks = args.xcodePublicHeadersSymlinks.orElse(true);
     return CxxDescriptionEnhancer.collectCxxPreprocessorInput(
         params,
         cxxPlatform,
@@ -356,19 +358,7 @@ public final class CxxInferEnhancer {
         CxxLibraryDescription.getTransitiveCxxPreprocessorInput(
             params,
             resolver,
-            cxxPlatform,
-            CxxFlags.getLanguageFlags(
-                args.exportedPreprocessorFlags,
-                args.exportedPlatformPreprocessorFlags,
-                args.exportedLangPreprocessorFlags,
-                cxxPlatform),
-            CxxDescriptionEnhancer.parseExportedHeaders(
-                params.getBuildTarget(),
-                pathResolver,
-                Optional.of(cxxPlatform),
-                args),
-            args.frameworks,
-            shouldCreatePublicHeadersSymlinks),
+            cxxPlatform),
         includeDirs,
         sandboxTree);
   }
@@ -390,6 +380,8 @@ public final class CxxInferEnhancer {
 
     ImmutableMap<Path, SourcePath> headers = CxxDescriptionEnhancer.parseHeaders(
         params.getBuildTarget(),
+        resolver,
+        ruleFinder,
         pathResolver,
         Optional.of(cxxPlatform),
         args);
@@ -431,7 +423,6 @@ public final class CxxInferEnhancer {
       preprocessorInputs = computePreprocessorInputForCxxLibraryDescriptionArg(
           params,
           resolver,
-          pathResolver,
           cxxPlatform,
           (CxxLibraryDescription.Arg) args,
           headerSymlinkTree,

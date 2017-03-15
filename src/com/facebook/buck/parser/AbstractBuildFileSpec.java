@@ -106,7 +106,8 @@ abstract class AbstractBuildFileSpec {
         watchman.getProjectWatches().containsKey(filesystem.getRootPath());
     boolean walkComplete = false;
     if (tryWatchman) {
-      ProjectWatch projectWatch = watchman.getProjectWatches().get(filesystem.getRootPath());
+      ProjectWatch projectWatch =
+          Preconditions.checkNotNull(watchman.getProjectWatches().get(filesystem.getRootPath()));
       LOG.debug(
           "Searching for %s files (watch root %s, project prefix %s, base path %s) with Watchman",
           buildFileName,
@@ -203,7 +204,7 @@ abstract class AbstractBuildFileSpec {
       LOG.warn("Watchman warning from query %s: %s", query, warning);
     }
 
-    List<String> files = (List<String>) response.get("files");
+    List<String> files = (List<String>) Preconditions.checkNotNull(response.get("files"));
     LOG.verbose("Query %s -> files %s", query, files);
 
     for (String file : files) {

@@ -51,7 +51,7 @@ EXPORTED_RESOURCES = [
     Resource("path_to_intellij_py"),
     Resource("path_to_pex"),
     Resource("path_to_pywatchman"),
-    Resource("path_to_scandir_py", basename='scandir.py'),
+    Resource("path_to_typing"),
     Resource("path_to_sh_binary_template"),
     Resource("jacoco_agent_jar"),
     Resource("report_generator_jar"),
@@ -124,7 +124,7 @@ class BuckTool(object):
         raise NotImplementedError()
 
     def _use_buckd(self):
-        return not os.environ.get('NO_BUCKD') and not self._command_line.is_help()
+        return not os.environ.get('NO_BUCKD')
 
     def _environ_for_buck(self):
         env = os.environ.copy()

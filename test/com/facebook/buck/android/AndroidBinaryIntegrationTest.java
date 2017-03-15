@@ -130,31 +130,6 @@ public class AndroidBinaryIntegrationTest {
     zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
   }
 
-  @Test
-  public void testAppHasAssets() throws IOException {
-    workspace.runBuckCommand("build", SIMPLE_TARGET).assertSuccess();
-
-    Path apkPath = BuildTargets.getGenPath(
-        filesystem,
-        BuildTargetFactory.newInstance(SIMPLE_TARGET),
-        "%s.apk");
-    ZipInspector zipInspector = new ZipInspector(workspace.getPath(apkPath));
-    zipInspector.assertFileExists("assets/asset_file.txt");
-    zipInspector.assertFileExists("assets/hilarity.txt");
-    zipInspector.assertFileContents(
-        "assets/hilarity.txt",
-        workspace.getFileContents(
-            "res/com/sample/base/buck-assets/hilarity.txt"));
-
-    // Test that after changing an asset, the new asset is in the apk.
-    String newContents = "some new contents";
-    workspace.writeContentsToPath(
-        newContents,
-        "res/com/sample/base/buck-assets/hilarity.txt");
-    workspace.runBuckCommand("build", SIMPLE_TARGET).assertSuccess();
-    zipInspector = new ZipInspector(workspace.getPath(apkPath));
-    zipInspector.assertFileContents("assets/hilarity.txt", newContents);
-  }
 
   @Test
   public void testRawSplitDexHasSecondary() throws IOException {
@@ -382,9 +357,8 @@ public class AndroidBinaryIntegrationTest {
     Path mapping = workspace.getPath(
         BuildTargets.getGenPath(
             filesystem,
-            BuildTargetFactory.newInstance(target)
-                .withFlavors(AndroidBinaryGraphEnhancer.AAPT_PACKAGE_FLAVOR),
-            "__%s__proguard__/.proguard/mapping.txt"));
+            BuildTargetFactory.newInstance(target),
+            "%s/proguard/mapping.txt"));
     assertTrue(Files.exists(mapping));
   }
 
@@ -985,7 +959,7 @@ public class AndroidBinaryIntegrationTest {
 
     assertTrue(userData.get("config").toString().endsWith("apps/sample/redex-config.json"));
     assertEquals(
-        "buck-out/gen/apps/sample/__app_redex#aapt_package__proguard__/.proguard/seeds.txt",
+        "buck-out/gen/apps/sample/app_redex/proguard/seeds.txt",
         userData.get("keep"));
     assertEquals(
         "my_alias",
@@ -1000,10 +974,10 @@ public class AndroidBinaryIntegrationTest {
         "buck-out/gen/apps/sample/app_redex.apk.redex",
         userData.get("out"));
     assertEquals(
-        "buck-out/gen/apps/sample/__app_redex#aapt_package__proguard__/.proguard/command-line.txt",
+        "buck-out/gen/apps/sample/app_redex/proguard/command-line.txt",
         userData.get("P"));
     assertEquals(
-        "buck-out/gen/apps/sample/__app_redex#aapt_package__proguard__/.proguard/mapping.txt",
+        "buck-out/gen/apps/sample/app_redex/proguard/mapping.txt",
         userData.get("proguard-map"));
     assertTrue((Boolean) userData.get("sign"));
     assertEquals(

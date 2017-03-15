@@ -216,12 +216,6 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       return;
     }
 
-    Long timeToRender = 0L;
-    AtomicLong totalTime = accumulatedTimeTracker.getTime(finished.getBuildRule().getBuildTarget());
-    if (totalTime != null) {
-      timeToRender = totalTime.get();
-    }
-
     String jobsInfo = "";
     if (ruleCount.isPresent()) {
       jobsInfo = String.format(
@@ -235,7 +229,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
         "%s %s %s %s",
         finished.getResultString(),
         jobsInfo,
-        formatElapsedTime(timeToRender),
+        formatElapsedTime(finished.getDuration().getWallMillisDuration()),
         finished.getBuildRule().getFullyQualifiedName());
 
     if (BUILT_LOCALLY.equals(finished.getSuccessType().orElse(null)) ||

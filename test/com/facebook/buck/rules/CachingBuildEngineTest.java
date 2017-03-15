@@ -40,6 +40,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.FakeBuckEventListener;
+import com.facebook.buck.event.TestEventConfigurator;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
@@ -76,6 +77,7 @@ import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.timing.DefaultClock;
+import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
@@ -199,6 +201,7 @@ public class CachingBuildEngineTest {
     protected SourcePathResolver pathResolver;
     protected DefaultRuleKeyFactory defaultRuleKeyFactory;
     protected InputBasedRuleKeyFactory inputBasedRuleKeyFactory;
+    protected BuildRuleDurationTracker durationTracker;
 
     @Before
     public void setUp() {
@@ -211,7 +214,7 @@ public class CachingBuildEngineTest {
           .setBuildContext(FakeBuildContext.NOOP_CONTEXT)
           .setArtifactCache(cache)
           .setBuildId(new BuildId())
-          .setClock(new DefaultClock())
+          .setClock(new IncrementingFakeClock())
           .setObjectMapper(ObjectMappers.newDefaultInstance())
           .build();
       buildContext.getEventBus().register(listener);
@@ -227,12 +230,23 @@ public class CachingBuildEngineTest {
           pathResolver,
           ruleFinder,
           NO_INPUT_FILE_SIZE_LIMIT);
+      durationTracker = new BuildRuleDurationTracker();
     }
 
 
     protected CachingBuildEngineFactory cachingBuildEngineFactory() {
       return new CachingBuildEngineFactory(resolver)
           .setCachingBuildEngineDelegate(new LocalCachingBuildEngineDelegate(fileHashCache));
+    }
+
+    protected BuildInfoRecorder createBuildInfoRecorder(BuildTarget buildTarget) {
+      return new BuildInfoRecorder(
+          buildTarget,
+          filesystem,
+          new DefaultClock(),
+          new BuildId(),
+          new ObjectMapper(),
+          ImmutableMap.of());
     }
   }
 
@@ -321,13 +335,15 @@ public class CachingBuildEngineTest {
 
       // Verify the events logged to the BuckEventBus.
       List<BuckEvent> events = listener.getEvents();
-      assertThat(events, hasItem(BuildRuleEvent.ruleKeyCalculationStarted(dep)));
+      assertThat(events, hasItem(BuildRuleEvent.ruleKeyCalculationStarted(dep, durationTracker)));
+      BuildRuleEvent.Started started = TestEventConfigurator.configureTestEvent(
+          BuildRuleEvent.ruleKeyCalculationStarted(ruleToTest, durationTracker));
       assertThat(
           listener.getEvents(),
           Matchers.containsInRelativeOrder(
-              BuildRuleEvent.ruleKeyCalculationStarted(ruleToTest),
+              started,
               BuildRuleEvent.finished(
-                  ruleToTest,
+                  started,
                   BuildRuleKeys.of(ruleToTestKey),
                   BuildRuleStatus.SUCCESS,
                   CacheResult.miss(),
@@ -377,12 +393,14 @@ public class CachingBuildEngineTest {
 
       assertTrue(service.shutdownNow().isEmpty());
 
+      BuildRuleEvent.Started started = TestEventConfigurator.configureTestEvent(
+              BuildRuleEvent.ruleKeyCalculationStarted(buildRule, durationTracker));
       assertThat(
           listener.getEvents(),
           Matchers.containsInRelativeOrder(
-              BuildRuleEvent.ruleKeyCalculationStarted(buildRule),
+              started,
               BuildRuleEvent.finished(
-                  buildRule,
+                  started,
                   BuildRuleKeys.of(defaultRuleKeyFactory.build(buildRule)),
                   BuildRuleStatus.SUCCESS,
                   CacheResult.miss(),
@@ -541,14 +559,11 @@ public class CachingBuildEngineTest {
       FakeBuildRule dep = new FakeBuildRule(depTarget, pathResolver);
       FakeBuildRule ruleToTest = new FakeBuildRule(BUILD_TARGET, filesystem, pathResolver, dep);
       RuleKey ruleToTestKey = defaultRuleKeyFactory.build(ruleToTest);
-      filesystem.writeContentsToPath(
-          ruleToTestKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(BUILD_TARGET, filesystem)
-              .resolve(BuildInfo.MetadataKey.RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of()),
-          BuildInfo.getPathToMetadataDirectory(BUILD_TARGET, filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+
+      BuildInfoRecorder recorder = createBuildInfoRecorder(BUILD_TARGET);
+      recorder.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, ruleToTestKey.toString());
+      recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.writeMetadataToDisk(true);
 
       // The BuildContext that will be used by the rule's build() method.
       BuildEngineBuildContext context = this.buildContext
@@ -566,13 +581,15 @@ public class CachingBuildEngineTest {
 
       // Verify the events logged to the BuckEventBus.
       List<BuckEvent> events = listener.getEvents();
-      assertThat(events, hasItem(BuildRuleEvent.ruleKeyCalculationStarted(dep)));
+      assertThat(events, hasItem(BuildRuleEvent.ruleKeyCalculationStarted(dep, durationTracker)));
+      BuildRuleEvent.Started started = TestEventConfigurator.configureTestEvent(
+          BuildRuleEvent.ruleKeyCalculationStarted(ruleToTest, durationTracker));
       assertThat(
           events,
           Matchers.containsInRelativeOrder(
-              BuildRuleEvent.ruleKeyCalculationStarted(ruleToTest),
+              started,
               BuildRuleEvent.finished(
-                  ruleToTest,
+                  started,
                   BuildRuleKeys.of(ruleToTestKey),
                   BuildRuleStatus.SUCCESS,
                   CacheResult.localKeyUnchangedHit(),
@@ -590,24 +607,17 @@ public class CachingBuildEngineTest {
           .build();
       FakeBuildRule dep = new FakeBuildRule(ruleParams, pathResolver);
       RuleKey depKey = defaultRuleKeyFactory.build(dep);
-      filesystem.writeContentsToPath(
-          depKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(depTarget, filesystem)
-              .resolve(BuildInfo.MetadataKey.RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of()),
-          BuildInfo.getPathToMetadataDirectory(depTarget, filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      BuildInfoRecorder depRecorder = createBuildInfoRecorder(depTarget);
+      depRecorder.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, depKey.toString());
+      depRecorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      depRecorder.writeMetadataToDisk(true);
+
       FakeBuildRule ruleToTest = new FakeBuildRule(BUILD_TARGET, filesystem, pathResolver, dep);
       RuleKey ruleToTestKey = defaultRuleKeyFactory.build(ruleToTest);
-      filesystem.writeContentsToPath(
-          ruleToTestKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(BUILD_TARGET, filesystem)
-              .resolve(BuildInfo.MetadataKey.RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of()),
-          BuildInfo.getPathToMetadataDirectory(BUILD_TARGET, filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      BuildInfoRecorder recorder = createBuildInfoRecorder(BUILD_TARGET);
+      recorder.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, ruleToTestKey.toString());
+      recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.writeMetadataToDisk(true);
 
       // Create the build engine.
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory()
@@ -622,24 +632,28 @@ public class CachingBuildEngineTest {
 
       // Verify the events logged to the BuckEventBus.
       List<BuckEvent> events = listener.getEvents();
+      BuildRuleEvent.Started startedDep = TestEventConfigurator.configureTestEvent(
+          BuildRuleEvent.ruleKeyCalculationStarted(dep, durationTracker));
       assertThat(
           events,
           Matchers.containsInRelativeOrder(
-              BuildRuleEvent.ruleKeyCalculationStarted(dep),
+              startedDep,
               BuildRuleEvent.finished(
-                  dep,
+                  startedDep,
                   BuildRuleKeys.of(depKey),
                   BuildRuleStatus.SUCCESS,
                   CacheResult.localKeyUnchangedHit(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
                   Optional.empty(),
                   Optional.empty())));
+      BuildRuleEvent.Started started = TestEventConfigurator.configureTestEvent(
+          BuildRuleEvent.ruleKeyCalculationStarted(ruleToTest, durationTracker));
       assertThat(
           events,
           Matchers.containsInRelativeOrder(
-              BuildRuleEvent.ruleKeyCalculationStarted(ruleToTest),
+              started,
               BuildRuleEvent.finished(
-                  ruleToTest,
+                  started,
                   BuildRuleKeys.of(ruleToTestKey),
                   BuildRuleStatus.SUCCESS,
                   CacheResult.localKeyUnchangedHit(),
@@ -658,14 +672,11 @@ public class CachingBuildEngineTest {
           new FakeBuildRule(ruleParams, pathResolver);
       resolver.addToIndex(transitiveRuntimeDep);
       RuleKey transitiveRuntimeDepKey = defaultRuleKeyFactory.build(transitiveRuntimeDep);
-      filesystem.writeContentsToPath(
-          transitiveRuntimeDepKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(transitiveRuntimeDep.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of()),
-          BuildInfo.getPathToMetadataDirectory(transitiveRuntimeDep.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+
+      BuildInfoRecorder recorder = createBuildInfoRecorder(transitiveRuntimeDep.getBuildTarget());
+      recorder.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, transitiveRuntimeDepKey.toString());
+      recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.writeMetadataToDisk(true);
 
       // Setup a runtime dependency that is referenced directly by the top-level rule.
       FakeBuildRule runtimeDep =
@@ -676,14 +687,10 @@ public class CachingBuildEngineTest {
               transitiveRuntimeDep);
       resolver.addToIndex(runtimeDep);
       RuleKey runtimeDepKey = defaultRuleKeyFactory.build(runtimeDep);
-      filesystem.writeContentsToPath(
-          runtimeDepKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(runtimeDep.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of()),
-          BuildInfo.getPathToMetadataDirectory(runtimeDep.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      BuildInfoRecorder runtimeDepRec = createBuildInfoRecorder(runtimeDep.getBuildTarget());
+      runtimeDepRec.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, runtimeDepKey.toString());
+      runtimeDepRec.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      runtimeDepRec.writeMetadataToDisk(true);
 
       // Create a dep for the build rule.
       FakeBuildRule ruleToTest = new FakeHasRuntimeDeps(
@@ -692,14 +699,10 @@ public class CachingBuildEngineTest {
           pathResolver,
           runtimeDep);
       RuleKey ruleToTestKey = defaultRuleKeyFactory.build(ruleToTest);
-      filesystem.writeContentsToPath(
-          ruleToTestKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(ruleToTest.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of()),
-          BuildInfo.getPathToMetadataDirectory(ruleToTest.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      BuildInfoRecorder testRec = createBuildInfoRecorder(BUILD_TARGET);
+      testRec.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, ruleToTestKey.toString());
+      testRec.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      testRec.writeMetadataToDisk(true);
 
       // Create the build engine.
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
@@ -712,36 +715,42 @@ public class CachingBuildEngineTest {
 
       // Verify the events logged to the BuckEventBus.
       List<BuckEvent> events = listener.getEvents();
+      BuildRuleEvent.Started started = TestEventConfigurator.configureTestEvent(
+          BuildRuleEvent.ruleKeyCalculationStarted(ruleToTest, durationTracker));
       assertThat(
           events,
           Matchers.containsInRelativeOrder(
-              BuildRuleEvent.ruleKeyCalculationStarted(ruleToTest),
+              started,
               BuildRuleEvent.finished(
-                  ruleToTest,
+                  started,
                   BuildRuleKeys.of(ruleToTestKey),
                   BuildRuleStatus.SUCCESS,
                   CacheResult.localKeyUnchangedHit(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
                   Optional.empty(),
                   Optional.empty())));
+      BuildRuleEvent.Started startedDep = TestEventConfigurator.configureTestEvent(
+          BuildRuleEvent.ruleKeyCalculationStarted(runtimeDep, durationTracker));
       assertThat(
           events,
           Matchers.containsInRelativeOrder(
-              BuildRuleEvent.ruleKeyCalculationStarted(runtimeDep),
+              startedDep,
               BuildRuleEvent.finished(
-                  runtimeDep,
+                  startedDep,
                   BuildRuleKeys.of(runtimeDepKey),
                   BuildRuleStatus.SUCCESS,
                   CacheResult.localKeyUnchangedHit(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
                   Optional.empty(),
                   Optional.empty())));
+      BuildRuleEvent.Started startedTransitive = TestEventConfigurator.configureTestEvent(
+          BuildRuleEvent.ruleKeyCalculationStarted(transitiveRuntimeDep, durationTracker));
       assertThat(
           events,
           Matchers.containsInRelativeOrder(
-              BuildRuleEvent.ruleKeyCalculationStarted(transitiveRuntimeDep),
+              startedTransitive,
               BuildRuleEvent.finished(
-                  transitiveRuntimeDep,
+                  startedTransitive,
                   BuildRuleKeys.of(transitiveRuntimeDepKey),
                   BuildRuleStatus.SUCCESS,
                   CacheResult.localKeyUnchangedHit(),
@@ -843,14 +852,12 @@ public class CachingBuildEngineTest {
           /* buildSteps */ ImmutableList.of(),
           /* postBuildSteps */ ImmutableList.of(failingStep),
           /* pathToOutputFile */ null);
-      filesystem.writeContentsToPath(
-          defaultRuleKeyFactory.build(ruleToTest).toString(),
-          BuildInfo.getPathToMetadataDirectory(ruleToTest.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of()),
-          BuildInfo.getPathToMetadataDirectory(ruleToTest.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      BuildInfoRecorder recorder = createBuildInfoRecorder(ruleToTest.getBuildTarget());
+
+      recorder.addBuildMetadata(
+          BuildInfo.MetadataKey.RULE_KEY, defaultRuleKeyFactory.build(ruleToTest).toString());
+      recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.writeMetadataToDisk(true);
 
       // Create the build engine.
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
@@ -1312,18 +1319,16 @@ public class CachingBuildEngineTest {
           pathResolver.getRelativePath(rule.getSourcePathToOutput()));
 
       // Prepopulate the recorded paths metadata.
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(
-              ImmutableList.of(
-                  pathResolver.getRelativePath(rule.getSourcePathToOutput()).toString())),
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      BuildInfoRecorder recorder = createBuildInfoRecorder(target);
+      recorder.addMetadata(
+          BuildInfo.MetadataKey.RECORDED_PATHS,
+          ImmutableList.of(
+              pathResolver.getRelativePath(rule.getSourcePathToOutput()).toString()));
 
       // Prepopulate the input rule key on disk, so that we avoid a rebuild.
-      filesystem.writeContentsToPath(
-          inputRuleKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
-              .resolve(BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY));
+      recorder.addBuildMetadata(
+          BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY, inputRuleKey.toString());
+      recorder.writeMetadataToDisk(true);
 
       // Create the build engine.
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory()
@@ -1705,20 +1710,16 @@ public class CachingBuildEngineTest {
               fileHashCache));
 
       // Prepopulate the dep file rule key and dep file.
-      filesystem.writeContentsToPath(
-          depFileRuleKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
-              .resolve(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of(fileToDepFileEntryString(input))),
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
-              .resolve(BuildInfo.MetadataKey.DEP_FILE));
-
+      BuildInfoRecorder recorder = createBuildInfoRecorder(rule.getBuildTarget());
+      recorder.addBuildMetadata(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY, depFileRuleKey.toString());
+      recorder.addMetadata(
+          BuildInfo.MetadataKey.DEP_FILE,
+          ImmutableList.of(fileToDepFileEntryString(input)));
       // Prepopulate the recorded paths metadata.
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of(output.toString())),
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      recorder.addMetadata(
+          BuildInfo.MetadataKey.RECORDED_PATHS,
+          ImmutableList.of(output.toString()));
+      recorder.writeMetadataToDisk(true);
 
       // Run the build.
       BuildResult result =
@@ -1784,20 +1785,17 @@ public class CachingBuildEngineTest {
           .getRuleKey();
 
       // Prepopulate the dep file rule key and dep file.
-      filesystem.writeContentsToPath(
-          depFileRuleKey.toString(),
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
-              .resolve(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of(fileToDepFileEntryString(input))),
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
-              .resolve(BuildInfo.MetadataKey.DEP_FILE));
+      BuildInfoRecorder recorder = createBuildInfoRecorder(rule.getBuildTarget());
+      recorder.addBuildMetadata(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY, depFileRuleKey.toString());
+      recorder.addMetadata(
+          BuildInfo.MetadataKey.DEP_FILE,
+          ImmutableList.of(fileToDepFileEntryString(input)));
 
       // Prepopulate the recorded paths metadata.
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of(output.toString())),
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      recorder.addMetadata(
+          BuildInfo.MetadataKey.RECORDED_PATHS,
+          ImmutableList.of(output.toString()));
+      recorder.writeMetadataToDisk(true);
 
       // Now modify the input file and invalidate it in the cache.
       filesystem.writeContentsToPath("something else", input);
@@ -2822,8 +2820,9 @@ public class CachingBuildEngineTest {
 
       // Verify that events have correct thread IDs
       assertRelatedBuildRuleEventsOnSameThread(
-          FluentIterable.from(listener.getEvents())
-              .filter(BuildRuleEvent.class));
+          FluentIterable.from(listener.getEvents()).filter(BuildRuleEvent.class));
+      assertRelatedBuildRuleEventsDuration(
+          FluentIterable.from(listener.getEvents()).filter(BuildRuleEvent.class));
     }
 
     @Test
@@ -2835,14 +2834,12 @@ public class CachingBuildEngineTest {
                   .setProjectFilesystem(filesystem)
                   .build(),
               pathResolver);
-      filesystem.writeContentsToPath(
-          defaultRuleKeyFactory.build(rule).toString(),
-          BuildInfo.getPathToMetadataDirectory(rule.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RULE_KEY));
-      filesystem.writeContentsToPath(
-          MAPPER.writeValueAsString(ImmutableList.of()),
-          BuildInfo.getPathToMetadataDirectory(rule.getBuildTarget(), filesystem)
-              .resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+      BuildInfoRecorder recorder = createBuildInfoRecorder(rule.getBuildTarget());
+      recorder.addBuildMetadata(
+          BuildInfo.MetadataKey.RULE_KEY,
+          defaultRuleKeyFactory.build(rule).toString());
+      recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.writeMetadataToDisk(true);
 
       // Create the build engine.
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory()
@@ -2862,8 +2859,9 @@ public class CachingBuildEngineTest {
 
       // Verify that events have correct thread IDs
       assertRelatedBuildRuleEventsOnSameThread(
-          FluentIterable.from(listener.getEvents())
-              .filter(BuildRuleEvent.class));
+          FluentIterable.from(listener.getEvents()).filter(BuildRuleEvent.class));
+      assertRelatedBuildRuleEventsDuration(
+          FluentIterable.from(listener.getEvents()).filter(BuildRuleEvent.class));
     }
 
     @Test
@@ -2901,8 +2899,9 @@ public class CachingBuildEngineTest {
 
       // Verify that events have correct thread IDs
       assertRelatedBuildRuleEventsOnSameThread(
-          FluentIterable.from(listener.getEvents())
-              .filter(BuildRuleEvent.class));
+          FluentIterable.from(listener.getEvents()).filter(BuildRuleEvent.class));
+      assertRelatedBuildRuleEventsDuration(
+          FluentIterable.from(listener.getEvents()).filter(BuildRuleEvent.class));
     }
 
     /**
@@ -2912,9 +2911,7 @@ public class CachingBuildEngineTest {
       Map<Long, List<BuildRuleEvent>> grouped = new HashMap<>();
       for (BuildRuleEvent event : events) {
         if (!grouped.containsKey(event.getThreadId())) {
-          grouped.put(
-              event.getThreadId(),
-              new ArrayList<BuildRuleEvent>());
+          grouped.put(event.getThreadId(), new ArrayList<>());
         }
         grouped.get(event.getThreadId()).add(event);
       }
@@ -2948,6 +2945,50 @@ public class CachingBuildEngineTest {
               equalTo(!event2.isRuleRunningAfterThisEvent())
           );
         }
+      }
+    }
+
+    private void assertRelatedBuildRuleEventsDuration(Iterable<BuildRuleEvent> events) {
+      Map<BuildRule, List<BuildRuleEvent>> grouped = new HashMap<>();
+      for (BuildRuleEvent event : events) {
+        if (!grouped.containsKey(event.getBuildRule())) {
+          grouped.put(event.getBuildRule(), new ArrayList<>());
+        }
+        grouped.get(event.getBuildRule()).add(event);
+      }
+      for (List<BuildRuleEvent> queue : grouped.values()) {
+        queue.sort(Comparator.comparingLong(BuildRuleEvent::getNanoTime));
+        long count = 0, wallStart = 0, nanoStart = 0, wall = 0, nano = 0, thread = 0;
+        for (BuildRuleEvent event : queue) {
+          if (event instanceof BuildRuleEvent.BeginningBuildRuleEvent) {
+            if (count++ == 0) {
+              wallStart = event.getTimestamp();
+              nanoStart = event.getNanoTime();
+            }
+            assertEquals(wall + event.getTimestamp() - wallStart,
+                event.getDuration().getWallMillisDuration());
+            assertEquals(nano + event.getNanoTime() - nanoStart,
+                event.getDuration().getNanoDuration());
+            assertEquals(thread, event.getDuration().getThreadUserNanoDuration());
+          } else if (event instanceof BuildRuleEvent.EndingBuildRuleEvent) {
+            BuildRuleEvent.BeginningBuildRuleEvent beginning =
+                ((BuildRuleEvent.EndingBuildRuleEvent) event).getBeginningEvent();
+            thread += event.getThreadUserNanoTime() - beginning.getThreadUserNanoTime();
+            assertEquals(wall + event.getTimestamp() - wallStart,
+                event.getDuration().getWallMillisDuration());
+            assertEquals(nano + event.getNanoTime() - nanoStart,
+                event.getDuration().getNanoDuration());
+            assertEquals(thread, event.getDuration().getThreadUserNanoDuration());
+            if (--count == 0) {
+              wall += event.getTimestamp() - wallStart;
+              nano += event.getNanoTime() - nanoStart;
+            }
+          }
+        }
+        assertEquals(
+            "Different number of beginning and ending events: " + queue,
+            0,
+            count);
       }
     }
 

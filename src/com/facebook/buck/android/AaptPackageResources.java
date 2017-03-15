@@ -16,7 +16,6 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -45,6 +44,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 
@@ -65,10 +65,9 @@ public class AaptPackageResources extends AbstractBuildRule {
   @AddToRuleKey
   private final SourcePath manifest;
   private final FilteredResourcesProvider filteredResourcesProvider;
+  private final ImmutableSet<SourcePath> assetsDirectories;
   @AddToRuleKey
   private final Optional<String> resourceUnionPackage;
-  @AddToRuleKey
-  private final PackageType packageType;
   private final ImmutableList<HasAndroidResourceDeps> resourceDeps;
   @AddToRuleKey
   private final boolean shouldBuildStringSourceMap;
@@ -87,9 +86,12 @@ public class AaptPackageResources extends AbstractBuildRule {
       BuildRuleResolver ruleResolver,
       SourcePath manifest,
       FilteredResourcesProvider filteredResourcesProvider,
-      ImmutableList<HasAndroidResourceDeps> resourceDeps) {
+      ImmutableList<HasAndroidResourceDeps> resourceDeps,
+      ImmutableSortedSet<BuildRule> extraDeps,
+      ImmutableSet<SourcePath> assetsDirectories) {
 
     ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
+    depsBuilder.addAll(extraDeps);
     Stream<BuildTarget> resourceTargets = resourceDeps.stream()
         .map(HasAndroidResourceDeps::getBuildTarget);
     depsBuilder.addAll(
@@ -99,6 +101,7 @@ public class AaptPackageResources extends AbstractBuildRule {
                 resourceTargets::iterator));
     Stream<SourcePath> resourceDirs = resourceDeps.stream().map(HasAndroidResourceDeps::getRes);
     depsBuilder.addAll(ruleFinder.filterBuildRuleInputs(resourceDirs));
+    depsBuilder.addAll(ruleFinder.filterBuildRuleInputs(assetsDirectories));
     ruleFinder.getRule(manifest).ifPresent(depsBuilder::add);
     filteredResourcesProvider.getResourceFilterRule().ifPresent(depsBuilder::add);
     return depsBuilder.build();
@@ -111,8 +114,9 @@ public class AaptPackageResources extends AbstractBuildRule {
       SourcePath manifest,
       FilteredResourcesProvider filteredResourcesProvider,
       ImmutableList<HasAndroidResourceDeps> resourceDeps,
+      ImmutableSortedSet<BuildRule> extraDeps,
+      ImmutableSet<SourcePath> assetsDirectories,
       Optional<String> resourceUnionPackage,
-      PackageType packageType,
       boolean shouldBuildStringSourceMap,
       boolean skipCrunchPngs,
       boolean includesVectorDrawables,
@@ -125,13 +129,16 @@ public class AaptPackageResources extends AbstractBuildRule {
             ruleResolver,
             manifest,
             filteredResourcesProvider,
-            resourceDeps)),
-        Suppliers.ofInstance(ImmutableSortedSet.of())));
+            resourceDeps,
+            extraDeps,
+            assetsDirectories)),
+        Suppliers.ofInstance(ImmutableSortedSet.of())
+    ));
     this.manifest = manifest;
     this.filteredResourcesProvider = filteredResourcesProvider;
     this.resourceDeps = resourceDeps;
+    this.assetsDirectories = assetsDirectories;
     this.resourceUnionPackage = resourceUnionPackage;
-    this.packageType = packageType;
     this.shouldBuildStringSourceMap = shouldBuildStringSourceMap;
     this.skipCrunchPngs = skipCrunchPngs;
     this.includesVectorDrawables = includesVectorDrawables;
@@ -189,20 +196,18 @@ public class AaptPackageResources extends AbstractBuildRule {
     Path rDotTxtDir = getPathToRDotTxtDir();
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), rDotTxtDir));
 
-    Optional<Path> pathToGeneratedProguardConfig = Optional.empty();
-    if (packageType.isBuildWithObfuscation()) {
-      Path proguardConfigDir = getPathToGeneratedProguardConfigDir();
-      steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), proguardConfigDir));
-      pathToGeneratedProguardConfig = Optional.of(proguardConfigDir.resolve("proguard.txt"));
-      buildableContext.recordArtifact(proguardConfigDir);
-    }
+    Path pathToGeneratedProguardConfig = getPathToGeneratedProguardConfigFile();
+    steps.add(new MakeCleanDirectoryStep(
+        getProjectFilesystem(),
+        pathToGeneratedProguardConfig.getParent()));
+    buildableContext.recordArtifact(pathToGeneratedProguardConfig);
 
     steps.add(
         new AaptStep(
             getProjectFilesystem().getRootPath(),
             getAndroidManifestXml(),
             filteredResourcesProvider.getResDirectories(),
-            ImmutableSortedSet.of(),
+            context.getSourcePathResolver().getAllAbsolutePaths(assetsDirectories),
             getResourceApkPath(),
             rDotTxtDir,
             pathToGeneratedProguardConfig,
@@ -341,30 +346,17 @@ public class AaptPackageResources extends AbstractBuildRule {
         "__%s_string_source_map__");
   }
 
-  /**
-   * This is the path to the directory for generated files related to ProGuard. Ultimately, it
-   * should include:
-   * <ul>
-   *   <li>proguard.txt
-   *   <li>dump.txt
-   *   <li>seeds.txt
-   *   <li>usage.txt
-   *   <li>mapping.txt
-   *   <li>obfuscated.jar
-   * </ul>
-   * @return path to directory (will not include trailing slash)
-   */
-  public Path getPathToGeneratedProguardConfigDir() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__%s__proguard__")
-        .resolve(".proguard");
+  private Path getPathToGeneratedProguardConfigFile() {
+    return BuildTargets.getGenPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "%s/proguard/proguard.txt");
   }
 
-  public Optional<SourcePath> getSourcePathtoGeneratedProguardConfigDir() {
-    if (!packageType.isBuildWithObfuscation()) {
-      return Optional.empty();
-    }
-    return Optional.of(new ExplicitBuildTargetSourcePath(
-        getBuildTarget(), getPathToGeneratedProguardConfigDir()));
+  public SourcePath getSourcePathToGeneratedProguardConfigFile() {
+    return new ExplicitBuildTargetSourcePath(
+        getBuildTarget(),
+        getPathToGeneratedProguardConfigFile());
   }
 
   @VisibleForTesting

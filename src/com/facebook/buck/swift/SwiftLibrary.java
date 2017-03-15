@@ -43,14 +43,17 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.Collection;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -72,7 +75,7 @@ class SwiftLibrary
 
   private final BuildRuleResolver ruleResolver;
 
-  private final Iterable<? extends BuildRule> exportedDeps;
+  private final Collection<? extends BuildRule> exportedDeps;
   private final ImmutableSet<FrameworkPath> frameworks;
   private final ImmutableSet<FrameworkPath> libraries;
   private final FlavorDomain<SwiftPlatform> swiftPlatformFlavorDomain;
@@ -82,7 +85,7 @@ class SwiftLibrary
   SwiftLibrary(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      Iterable<? extends BuildRule> exportedDeps,
+      Collection<? extends BuildRule> exportedDeps,
       FlavorDomain<SwiftPlatform> swiftPlatformFlavorDomain,
       ImmutableSet<FrameworkPath> frameworks,
       ImmutableSet<FrameworkPath> libraries,
@@ -111,8 +114,9 @@ class SwiftLibrary
     // runtime library's linker args here so NativeLinkables can
     // deduplicate the linker flags on the build target (which would be the same for
     // all libraries).
-    return FluentIterable.from(getDeclaredDeps())
-        .filter(NativeLinkable.class);
+    return RichStream.from(getDeclaredDeps())
+        .filter(NativeLinkable.class)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   @Override
@@ -128,12 +132,13 @@ class SwiftLibrary
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
-    return FluentIterable.from(exportedDeps)
+    SwiftRuntimeNativeLinkable swiftRuntimeNativeLinkable = new SwiftRuntimeNativeLinkable(
+        swiftPlatformFlavorDomain.getValue(
+            cxxPlatform.getFlavor()));
+    return RichStream.from(exportedDeps)
         .filter(NativeLinkable.class)
-        .append(
-            new SwiftRuntimeNativeLinkable(
-                swiftPlatformFlavorDomain.getValue(
-                    cxxPlatform.getFlavor())));
+        .concat(RichStream.of(swiftRuntimeNativeLinkable))
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   @Override
@@ -143,7 +148,7 @@ class SwiftLibrary
     SwiftCompile rule = requireSwiftCompileRule(cxxPlatform.getFlavor());
     NativeLinkableInput.Builder inputBuilder = NativeLinkableInput.builder();
     inputBuilder
-        .addAllArgs(rule.getLinkArgs())
+        .addAllArgs(rule.getAstLinkArgs())
         .addAllFrameworks(frameworks)
         .addAllLibraries(libraries);
     boolean isDynamic;
@@ -161,9 +166,14 @@ class SwiftLibrary
       default:
         throw new IllegalStateException("unhandled linkage type: " + preferredLinkage);
     }
+
     if (isDynamic) {
-      inputBuilder.addArgs(SourcePathArg.of(
-          requireSwiftLinkRule(cxxPlatform.getFlavor()).getSourcePathToOutput()));
+      CxxLink swiftLinkRule = requireSwiftLinkRule(cxxPlatform.getFlavor());
+      inputBuilder.addArgs(
+          FileListableLinkerInputArg.withSourcePathArg(
+              SourcePathArg.of(swiftLinkRule.getSourcePathToOutput())));
+    } else {
+      inputBuilder.addArgs(rule.getFileListLinkArg());
     }
     return inputBuilder.build();
   }
@@ -242,8 +252,10 @@ class SwiftLibrary
 
   @Override
   public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
-    return FluentIterable.from(getDeps())
-        .filter(CxxPreprocessorDep.class);
+    return getDeps().stream()
+        .filter(CxxPreprocessorDep.class::isInstance)
+        .map(CxxPreprocessorDep.class::cast)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   @Override

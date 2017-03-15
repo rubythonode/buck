@@ -102,16 +102,17 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.AndroidReactNativeLibraryDescription;
 import com.facebook.buck.js.IosReactNativeLibraryDescription;
+import com.facebook.buck.js.JsBundleDescription;
 import com.facebook.buck.js.JsLibraryDescription;
 import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.jvm.groovy.GroovyBuckConfig;
 import com.facebook.buck.jvm.groovy.GroovyLibraryDescription;
 import com.facebook.buck.jvm.groovy.GroovyTestDescription;
+import com.facebook.buck.jvm.java.JavaAnnotationProcessorDescription;
 import com.facebook.buck.jvm.java.JavaBinaryDescription;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaOptions;
-import com.facebook.buck.jvm.java.JavaAnnotationProcessorDescription;
 import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.KeystoreDescription;
@@ -156,11 +157,6 @@ import com.facebook.buck.shell.WorkerToolDescription;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftPlatform;
-import com.facebook.buck.thrift.ThriftBuckConfig;
-import com.facebook.buck.thrift.ThriftCxxEnhancer;
-import com.facebook.buck.thrift.ThriftJavaEnhancer;
-import com.facebook.buck.thrift.ThriftLibraryDescription;
-import com.facebook.buck.thrift.ThriftPythonEnhancer;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
@@ -622,6 +618,7 @@ public class KnownBuildRuleTypes {
         new AndroidAarDescription(
             new AndroidManifestDescription(),
             cxxBuckConfig,
+            defaultJavacOptions,
             ndkCxxPlatforms));
     builder.register(
         new AndroidBinaryDescription(
@@ -745,6 +742,7 @@ public class KnownBuildRuleTypes {
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
             defaultCxxPlatform));
+    builder.register(new JsBundleDescription());
     builder.register(new JsLibraryDescription());
     builder.register(new KeystoreDescription());
     builder.register(new KotlinLibraryDescription(kotlinBuckConfig, defaultJavacOptions));
@@ -763,7 +761,7 @@ public class KnownBuildRuleTypes {
             pythonPlatforms));
     builder.register(new LuaLibraryDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
-    OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(platform, filesystem, config);
+    OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(config, defaultCxxPlatform);
     builder.register(new OcamlBinaryDescription(ocamlBuckConfig));
     builder.register(new OcamlLibraryDescription(ocamlBuckConfig));
     builder.register(new PrebuiltCxxLibraryDescription(cxxBuckConfig, cxxPlatforms));
@@ -776,7 +774,9 @@ public class KnownBuildRuleTypes {
     builder.register(new PrebuiltPythonLibraryDescription());
     builder.register(new ProjectConfigDescription());
     builder.register(pythonBinaryDescription);
-    builder.register(new PythonLibraryDescription());
+    PythonLibraryDescription pythonLibraryDescription =
+        new PythonLibraryDescription(pythonPlatforms, cxxPlatforms);
+    builder.register(pythonLibraryDescription);
     builder.register(
         new PythonTestDescription(
             pythonBinaryDescription,
@@ -805,23 +805,6 @@ public class KnownBuildRuleTypes {
     builder.register(new SceneKitAssetsDescription());
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription(defaultTestRuleTimeoutMs));
-    ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(config);
-    builder.register(
-        new ThriftLibraryDescription(
-            thriftBuckConfig,
-            ImmutableList.of(
-                new ThriftJavaEnhancer(thriftBuckConfig, defaultJavacOptions),
-                new ThriftCxxEnhancer(
-                    thriftBuckConfig,
-                    cxxLibraryDescription,
-                    /* cpp2 */ false),
-                new ThriftCxxEnhancer(
-                    thriftBuckConfig,
-                    cxxLibraryDescription,
-                    /* cpp2 */ true),
-                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.NORMAL),
-                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.TWISTED),
-                new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.ASYNCIO))));
     builder.register(new WorkerToolDescription(config));
     builder.register(new XcodePostbuildScriptDescription());
     builder.register(new XcodePrebuildScriptDescription());

@@ -55,7 +55,6 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -104,6 +103,35 @@ public class CxxLibraryDescription implements
 
   private static final FlavorDomain<Type> LIBRARY_TYPE =
       FlavorDomain.from("C/C++ Library Type", Type.class);
+
+  public enum MetadataType implements FlavorConvertible {
+
+    COMPILATION_DATABASE_DEPS(ImmutableFlavor.of("compilation-database-deps")),
+    CXX_HEADERS(ImmutableFlavor.of("header-symlink-tree")),
+    CXX_PREPROCESSOR_INPUT(ImmutableFlavor.of("cxx-preprocessor-input")),
+    ;
+
+    private final Flavor flavor;
+
+    MetadataType(Flavor flavor) {
+      this.flavor = flavor;
+    }
+
+    @Override
+    public Flavor getFlavor() {
+      return flavor;
+    }
+
+  }
+
+  public static final FlavorDomain<MetadataType> METADATA_TYPE =
+      FlavorDomain.from("C/C++ Metadata Type", MetadataType.class);
+
+  private static final FlavorDomain<HeaderVisibility> HEADER_VISIBILITY =
+      FlavorDomain.from("C/C++ Header Visibility", HeaderVisibility.class);
+
+  private static final FlavorDomain<CxxPreprocessables.HeaderMode> HEADER_MODE =
+      FlavorDomain.from("C/C++ Header Mode", CxxPreprocessables.HeaderMode.class);
 
   private final CxxBuckConfig cxxBuckConfig;
   private final CxxPlatform defaultCxxPlatform;
@@ -159,20 +187,7 @@ public class CxxLibraryDescription implements
       CxxSourceRuleFactory.PicType pic,
       CxxLibraryDescription.Arg args) throws NoSuchBuildTargetException {
 
-    ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags =
-        CxxFlags.getLanguageFlags(
-            args.exportedPreprocessorFlags,
-            args.exportedPlatformPreprocessorFlags,
-            args.exportedLangPreprocessorFlags,
-            cxxPlatform);
-    ImmutableMap<Path, SourcePath> exportedHeaders =
-        CxxDescriptionEnhancer.parseExportedHeaders(
-            params.getBuildTarget(),
-            sourcePathResolver,
-            Optional.of(cxxPlatform),
-            args);
     boolean shouldCreatePrivateHeadersSymlinks = args.xcodePrivateHeadersSymlinks.orElse(true);
-    boolean shouldCreatePublicHeadersSymlinks = args.xcodePublicHeadersSymlinks.orElse(true);
 
     HeaderSymlinkTree headerSymlinkTree =
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
@@ -181,6 +196,8 @@ public class CxxLibraryDescription implements
             cxxPlatform,
             CxxDescriptionEnhancer.parseHeaders(
                 params.getBuildTarget(),
+                ruleResolver,
+                ruleFinder,
                 sourcePathResolver,
                 Optional.of(cxxPlatform),
                 args),
@@ -210,11 +227,7 @@ public class CxxLibraryDescription implements
             getTransitiveCxxPreprocessorInput(
                 params,
                 ruleResolver,
-                cxxPlatform,
-                exportedPreprocessorFlags,
-                exportedHeaders,
-                args.frameworks,
-                shouldCreatePublicHeadersSymlinks),
+                cxxPlatform),
             args.includeDirs,
             sandboxTree);
 
@@ -236,6 +249,8 @@ public class CxxLibraryDescription implements
         args.precompiledHeader,
         CxxDescriptionEnhancer.parseCxxSources(
             params.getBuildTarget(),
+            ruleResolver,
+            ruleFinder,
             sourcePathResolver,
             cxxPlatform,
             args),
@@ -246,11 +261,8 @@ public class CxxLibraryDescription implements
   public static ImmutableCollection<CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      CxxPlatform cxxPlatform,
-      ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
-      ImmutableMap<Path, SourcePath> exportedHeaders,
-      ImmutableSet<FrameworkPath> frameworks,
-      boolean shouldCreatePublicHeadersSymlinks) throws NoSuchBuildTargetException {
+      CxxPlatform cxxPlatform)
+      throws NoSuchBuildTargetException {
 
     // Check if there is a target node representative for the library in the action graph and,
     // if so, grab the cached transitive C/C++ preprocessor input from that.
@@ -269,27 +281,17 @@ public class CxxLibraryDescription implements
           .values();
     }
 
-    // NB: This code must return the same results as CxxLibrary.getTransitiveCxxPreprocessorInput.
-    // In the long term we should get rid of the duplication.
-    CxxPreprocessorInput.Builder cxxPreprocessorInputBuilder = CxxPreprocessorInput.builder()
-        .putAllPreprocessorFlags(exportedPreprocessorFlags)
-        .addAllFrameworks(frameworks);
-
-    if (!exportedHeaders.isEmpty()) {
-      HeaderSymlinkTree symlinkTree =
-          CxxDescriptionEnhancer.requireHeaderSymlinkTree(
-              params,
-              ruleResolver,
-              cxxPlatform,
-              exportedHeaders,
-              HeaderVisibility.PUBLIC,
-              shouldCreatePublicHeadersSymlinks);
-      cxxPreprocessorInputBuilder.addIncludes(
-          CxxSymlinkTreeHeaders.from(symlinkTree, CxxPreprocessables.IncludeType.LOCAL));
-    }
-
     Map<BuildTarget, CxxPreprocessorInput> input = Maps.newLinkedHashMap();
-    input.put(params.getBuildTarget(), cxxPreprocessorInputBuilder.build());
+    input.put(
+        params.getBuildTarget(),
+        ruleResolver
+            .requireMetadata(
+                params.getBuildTarget().withAppendedFlavors(
+                    MetadataType.CXX_PREPROCESSOR_INPUT.getFlavor(),
+                    cxxPlatform.getFlavor(),
+                    HeaderVisibility.PUBLIC.getFlavor()),
+                CxxPreprocessorInput.class)
+            .orElseThrow(IllegalStateException::new));
     for (BuildRule rule : params.getDeps()) {
       if (rule instanceof CxxPreprocessorDep) {
         input.putAll(
@@ -479,19 +481,24 @@ public class CxxLibraryDescription implements
   /**
    * @return a {@link HeaderSymlinkTree} for the headers of this C/C++ library.
    */
-  public static <A extends Arg> HeaderSymlinkTree createHeaderSymlinkTreeBuildRule(
+  private <A extends Arg> HeaderSymlinkTree createHeaderSymlinkTreeBuildRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
-      A args) {
+      A args)
+      throws NoSuchBuildTargetException {
     boolean shouldCreatePrivateHeaderSymlinks = args.xcodePrivateHeadersSymlinks.orElse(true);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         params,
         resolver,
         cxxPlatform,
         CxxDescriptionEnhancer.parseHeaders(
             params.getBuildTarget(),
-            new SourcePathResolver(new SourcePathRuleFinder(resolver)),
+            resolver,
+            ruleFinder,
+            pathResolver,
             Optional.of(cxxPlatform),
             args),
         HeaderVisibility.PRIVATE,
@@ -501,20 +508,50 @@ public class CxxLibraryDescription implements
   /**
    * @return a {@link HeaderSymlinkTree} for the exported headers of this C/C++ library.
    */
-  public static <A extends Arg> HeaderSymlinkTree createExportedHeaderSymlinkTreeBuildRule(
+  private <A extends Arg> HeaderSymlinkTree createExportedHeaderSymlinkTreeBuildRule(
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CxxPreprocessables.HeaderMode mode,
+      A args)
+      throws NoSuchBuildTargetException {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    return CxxDescriptionEnhancer.createHeaderSymlinkTree(
+        params,
+        resolver,
+        mode,
+        CxxDescriptionEnhancer.parseExportedHeaders(
+            params.getBuildTarget(),
+            resolver,
+            ruleFinder,
+            pathResolver,
+            Optional.empty(),
+            args),
+        HeaderVisibility.PUBLIC);
+  }
+
+  /**
+   * @return a {@link HeaderSymlinkTree} for the exported headers of this C/C++ library.
+   */
+  private <A extends Arg> HeaderSymlinkTree createExportedPlatformHeaderSymlinkTreeBuildRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
-      A args) {
+      A args)
+      throws NoSuchBuildTargetException {
     boolean shouldCreatePublicHeaderSymlinks = args.xcodePublicHeadersSymlinks.orElse(true);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         params,
         resolver,
         cxxPlatform,
-        CxxDescriptionEnhancer.parseExportedHeaders(
+        CxxDescriptionEnhancer.parseExportedPlatformHeaders(
             params.getBuildTarget(),
-            new SourcePathResolver(new SourcePathRuleFinder(resolver)),
-            Optional.of(cxxPlatform),
+            resolver,
+            ruleFinder,
+            pathResolver,
+            cxxPlatform,
             args),
         HeaderVisibility.PUBLIC,
         shouldCreatePublicHeaderSymlinks);
@@ -759,6 +796,24 @@ public class CxxLibraryDescription implements
           args,
           inferBuckConfig,
           new CxxInferSourceFilter(inferBuckConfig));
+    } else if (type.isPresent() && !platform.isPresent()) {
+      BuildRuleParams untypedParams = getUntypedParams(params);
+      switch (type.get().getValue()) {
+        case EXPORTED_HEADERS:
+          Optional<CxxPreprocessables.HeaderMode> mode =
+              HEADER_MODE.getValue(params.getBuildTarget());
+          if (mode.isPresent()) {
+            return createExportedHeaderSymlinkTreeBuildRule(
+                untypedParams,
+                resolver,
+                mode.get(),
+                args);
+          }
+          break;
+        // $CASES-OMITTED$
+        default:
+      }
+
     } else if (type.isPresent() && platform.isPresent()) {
       // If we *are* building a specific type of this lib, call into the type specific
       // rule builder methods.
@@ -772,7 +827,7 @@ public class CxxLibraryDescription implements
               platform.get(),
               args);
         case EXPORTED_HEADERS:
-          return createExportedHeaderSymlinkTreeBuildRule(
+          return createExportedPlatformHeaderSymlinkTreeBuildRule(
               untypedParams,
               resolver,
               platform.get(),
@@ -859,11 +914,6 @@ public class CxxLibraryDescription implements
             .transform(resolver::getRule),
         hasExportedHeaders,
         Predicates.not(hasObjects),
-        input -> CxxFlags.getLanguageFlags(
-            args.exportedPreprocessorFlags,
-            args.exportedPlatformPreprocessorFlags,
-            args.exportedLangPreprocessorFlags,
-            input),
         input -> {
           ImmutableList<StringWithMacros> flags =
               CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
@@ -963,13 +1013,107 @@ public class CxxLibraryDescription implements
       A args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       final Class<U> metadataClass) throws NoSuchBuildTargetException {
-    if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class) ||
-        !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
-      return Optional.empty();
+
+    Map.Entry<Flavor, MetadataType> type =
+        METADATA_TYPE.getFlavorAndValue(buildTarget).orElseThrow(IllegalArgumentException::new);
+    BuildTarget baseTarget = buildTarget.withoutFlavors(type.getKey());
+
+    switch (type.getValue()) {
+
+      case CXX_HEADERS: {
+        Optional<CxxHeaders> symlinkTree = Optional.empty();
+        if (!args.exportedHeaders.isEmpty()) {
+          CxxPreprocessables.HeaderMode mode = HEADER_MODE.getRequiredValue(buildTarget);
+          baseTarget = baseTarget.withoutFlavors(mode.getFlavor());
+          symlinkTree =
+              Optional.of(
+                  CxxSymlinkTreeHeaders.from(
+                      (HeaderSymlinkTree) resolver.requireRule(
+                          baseTarget.withAppendedFlavors(
+                              Type.EXPORTED_HEADERS.getFlavor(),
+                              mode.getFlavor())),
+                      CxxPreprocessables.IncludeType.LOCAL));
+        }
+        return symlinkTree.map(metadataClass::cast);
+      }
+
+      case CXX_PREPROCESSOR_INPUT: {
+        Map.Entry<Flavor, CxxPlatform> platform =
+            cxxPlatforms.getFlavorAndValue(buildTarget).orElseThrow(IllegalArgumentException::new);
+        Map.Entry<Flavor, HeaderVisibility> visibility =
+            HEADER_VISIBILITY.getFlavorAndValue(buildTarget)
+                .orElseThrow(IllegalArgumentException::new);
+        baseTarget =
+            baseTarget.withoutFlavors(
+                platform.getKey(),
+                visibility.getKey());
+
+        CxxPreprocessorInput.Builder cxxPreprocessorInputBuilder = CxxPreprocessorInput.builder();
+
+        // TODO(andrewjcg): We currently always add exported flags and frameworks to the
+        // preprocessor input to mimic existing behavior, but this should likely be fixed.
+        cxxPreprocessorInputBuilder.putAllPreprocessorFlags(
+            CxxFlags.getLanguageFlags(
+                args.exportedPreprocessorFlags,
+                args.exportedPlatformPreprocessorFlags,
+                args.exportedLangPreprocessorFlags,
+                platform.getValue()));
+        cxxPreprocessorInputBuilder.addAllFrameworks(args.frameworks);
+
+        if (visibility.getValue() == HeaderVisibility.PRIVATE &&
+            !args.headers.isEmpty()) {
+          HeaderSymlinkTree symlinkTree =
+              (HeaderSymlinkTree) resolver.requireRule(
+                  baseTarget.withAppendedFlavors(
+                      platform.getKey(),
+                      Type.HEADERS.getFlavor()));
+          cxxPreprocessorInputBuilder.addIncludes(
+              CxxSymlinkTreeHeaders.from(symlinkTree, CxxPreprocessables.IncludeType.LOCAL));
+        }
+
+        if (visibility.getValue() == HeaderVisibility.PUBLIC) {
+
+          // Add platform-agnostic headers.
+          boolean shouldCreatePublicHeaderSymlinks = args.xcodePublicHeadersSymlinks.orElse(true);
+          CxxPreprocessables.HeaderMode mode =
+              CxxDescriptionEnhancer.getHeaderModeForPlatform(
+                  resolver,
+                  platform.getValue(),
+                  shouldCreatePublicHeaderSymlinks);
+          Optional<CxxHeaders> exportedHeaders =
+              resolver.requireMetadata(
+                  baseTarget.withAppendedFlavors(
+                      MetadataType.CXX_HEADERS.getFlavor(),
+                      mode.getFlavor()),
+                  CxxHeaders.class);
+          exportedHeaders.ifPresent(cxxPreprocessorInputBuilder::addIncludes);
+
+          // Add platform-specific headers.
+          if (!args.exportedPlatformHeaders.getMatchingValues(platform.getKey().toString())
+                  .isEmpty()) {
+            HeaderSymlinkTree symlinkTree =
+                (HeaderSymlinkTree) resolver.requireRule(
+                    baseTarget.withAppendedFlavors(
+                        platform.getKey(),
+                        Type.EXPORTED_HEADERS.getFlavor()));
+            cxxPreprocessorInputBuilder.addIncludes(
+                CxxSymlinkTreeHeaders.from(symlinkTree, CxxPreprocessables.IncludeType.LOCAL));
+          }
+        }
+
+        CxxPreprocessorInput cxxPreprocessorInput = cxxPreprocessorInputBuilder.build();
+        return Optional.of(cxxPreprocessorInput).map(metadataClass::cast);
+      }
+
+      case COMPILATION_DATABASE_DEPS: {
+        return CxxDescriptionEnhancer
+            .createCompilationDatabaseDependencies(buildTarget, cxxPlatforms, resolver, args).map(
+                metadataClass::cast);
+      }
+
     }
-    return CxxDescriptionEnhancer
-        .createCompilationDatabaseDependencies(buildTarget, cxxPlatforms, resolver, args).map(
-            metadataClass::cast);
+
+    throw new IllegalStateException(String.format("unhandled metadata type: %s", type.getValue()));
   }
 
   @Override

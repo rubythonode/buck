@@ -52,6 +52,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import javax.annotation.Nullable;
 
@@ -105,7 +106,11 @@ public abstract class AbstractCommand implements Command {
       if (key.size() == 2) {
         // Here we explicitly take the whole string as the cell name. We don't support transitive
         // path overrides for cells.
-        cellName = RelativeCellName.of(ImmutableSet.of(key.get(0)));
+        if (key.get(0).length() == 0) {
+          cellName = RelativeCellName.ROOT_CELL_NAME;
+        } else {
+          cellName = RelativeCellName.of(ImmutableSet.of(key.get(0)));
+        }
         configKey = key.get(1);
       }
       int separatorIndex = configKey.lastIndexOf('.');
@@ -180,10 +185,6 @@ public abstract class AbstractCommand implements Command {
     return noCache;
   }
 
-  public boolean showHelp() {
-    return help;
-  }
-
   public Optional<Path> getEventsOutputPath() {
     if (eventsOutputPath == null) {
       return Optional.empty();
@@ -200,8 +201,18 @@ public abstract class AbstractCommand implements Command {
   }
 
   @Override
+  public OptionalInt runHelp(PrintStream stream) {
+    if (help) {
+      printUsage(stream);
+      return OptionalInt.of(1);
+    } else {
+      return OptionalInt.empty();
+    }
+  }
+
+  @Override
   public final int run(CommandRunnerParams params) throws IOException, InterruptedException {
-    if (showHelp()) {
+    if (help) {
       printUsage(params.getConsole().getStdErr());
       return 1;
     }

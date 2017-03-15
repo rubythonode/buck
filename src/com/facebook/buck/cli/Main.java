@@ -64,7 +64,6 @@ import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanCursor;
 import com.facebook.buck.io.WatchmanDiagnosticEventListener;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.ConsoleHandlerState;
 import com.facebook.buck.log.GlobalStateManager;
@@ -80,7 +79,6 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.RuleKey;
@@ -100,7 +98,6 @@ import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.BuckArgsMethods;
-import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.BuckIsDyingException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -187,6 +184,7 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -251,7 +249,7 @@ public final class Main {
   // Ensure we only have one instance of this, so multiple trash cleaning
   // operations are serialized on one queue.
   private static final AsynchronousDirectoryContentsCleaner TRASH_CLEANER =
-      new AsynchronousDirectoryContentsCleaner(BuckConstant.getTrashPath());
+      new AsynchronousDirectoryContentsCleaner();
 
   private final Platform platform;
 
@@ -798,9 +796,6 @@ public final class Main {
     } catch (Throwable t) {
       LOG.error(t, "Uncaught exception at top level");
     } finally {
-      if (context.isPresent()) {
-        System.gc(); // Let VM return memory to OS
-      }
       LOG.debug("Done.");
       LogConfig.flushLogs();
       // Exit explicitly so that non-daemon threads (of which we use many) don't
@@ -843,6 +838,14 @@ public final class Main {
       stdErr.println(e.getLocalizedMessage());
       stdErr.println("For help see 'buck --help'.");
       return 1;
+    }
+
+    {
+      // Return help strings fast if the command is a help request.
+      OptionalInt result = command.runHelp(stdErr);
+      if (result.isPresent()) {
+        return result.getAsInt();
+      }
     }
 
     // Setup logging.
@@ -945,7 +948,7 @@ public final class Main {
 
       if (!command.isReadOnly()) {
         Optional<String> currentVersion =
-            filesystem.readFileIfItExists(BuckConstant.getCurrentVersionFile());
+            filesystem.readFileIfItExists(filesystem.getBuckPaths().getCurrentVersionFile());
         BuckPaths unconfiguredPaths =
             filesystem.getBuckPaths().withConfiguredBuckOut(filesystem.getBuckPaths().getBuckOut());
         if (!currentVersion.isPresent() ||
@@ -964,10 +967,10 @@ public final class Main {
               filesystem.getBuckPaths().getScratchDir(),
               filesystem.getBuckPaths().getResDir());
           shouldCleanUpTrash = true;
-          filesystem.mkdirs(BuckConstant.getCurrentVersionFile().getParent());
+          filesystem.mkdirs(filesystem.getBuckPaths().getCurrentVersionFile().getParent());
           filesystem.writeContentsToPath(
               BuckVersion.getVersion(),
-              BuckConstant.getCurrentVersionFile());
+              filesystem.getBuckPaths().getCurrentVersionFile());
         }
       }
 
@@ -982,12 +985,16 @@ public final class Main {
       ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
       Clock clock;
+      boolean enableThreadCpuTime = buckConfig.getBooleanValue(
+          "build",
+          "enable_thread_cpu_time",
+          true);
       if (BUCKD_LAUNCH_TIME_NANOS.isPresent()) {
         long nanosEpoch = Long.parseLong(BUCKD_LAUNCH_TIME_NANOS.get(), 10);
         LOG.verbose("Using nanos epoch: %d", nanosEpoch);
-        clock = new NanosAdjustedClock(nanosEpoch);
+        clock = new NanosAdjustedClock(nanosEpoch, enableThreadCpuTime);
       } else {
-        clock = new DefaultClock();
+        clock = new DefaultClock(enableThreadCpuTime);
       }
 
       ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
@@ -1006,7 +1013,7 @@ public final class Main {
           // non-buckd read-write command. (We don't bother waiting
           // for it to complete; the thread is a daemon thread which
           // will just be terminated at shutdown time.)
-          TRASH_CLEANER.startCleaningDirectory();
+          TRASH_CLEANER.startCleaningDirectory(filesystem.getBuckPaths().getTrashDir());
         }
 
         KnownBuildRuleTypesFactory factory = new KnownBuildRuleTypesFactory(
@@ -1197,6 +1204,17 @@ public final class Main {
                       .get()
                       .getEventListeners(invocationInfo.getLogDirectoryPath(), filesystem) :
                   ImmutableList.of();
+
+          Supplier<BuckEventListener> missingSymbolsListenerSupplier = () -> {
+            return MissingSymbolsHandler.createListener(
+              rootCell.getFilesystem(),
+              rootCell.getKnownBuildRuleTypes().getAllDescriptions(),
+              rootCell.getBuckConfig(),
+              buildEventBus,
+              console,
+              buckConfig.getView(JavaBuckConfig.class).getDefaultJavacOptions(),
+              clientEnvironment);
+          };
           eventListeners = addEventListeners(
               buildEventBus,
               rootCell.getFilesystem(),
@@ -1204,10 +1222,8 @@ public final class Main {
               rootCell.getBuckConfig(),
               webServer,
               clock,
-              console,
               consoleListener,
-              rootCell.getKnownBuildRuleTypes(),
-              clientEnvironment,
+              missingSymbolsListenerSupplier,
               counterRegistry,
               commandEventListeners
           );
@@ -1426,7 +1442,7 @@ public final class Main {
             // read-write command. (We don't bother waiting for it to
             // complete; the cleaner will ensure subsequent cleans are
             // serialized with this one.)
-            TRASH_CLEANER.startCleaningDirectory();
+            TRASH_CLEANER.startCleaningDirectory(filesystem.getBuckPaths().getTrashDir());
           }
           // shut down the cached thread pools
           for (ExecutorPool p : executors.keySet()) {
@@ -1471,7 +1487,7 @@ public final class Main {
       Console console,
       BuildId buildId,
       Path... pathsToMove) throws IOException {
-    Path trashPath = BuckConstant.getTrashPath().resolve(buildId.toString());
+    Path trashPath = filesystem.getBuckPaths().getTrashDir().resolve(buildId.toString());
     filesystem.mkdirs(trashPath);
     for (Path pathToMove : pathsToMove) {
       try {
@@ -1787,10 +1803,8 @@ public final class Main {
       BuckConfig buckConfig,
       Optional<WebServer> webServer,
       Clock clock,
-      Console console,
       AbstractConsoleEventBusListener consoleEventBusListener,
-      KnownBuildRuleTypes knownBuildRuleTypes,
-      ImmutableMap<String, String> environment,
+      Supplier<BuckEventListener> missingSymbolsListenerSupplier,
       CounterRegistry counterRegistry,
       Iterable<BuckEventListener> commandSpecificEventListeners
   ) {
@@ -1844,15 +1858,7 @@ public final class Main {
 
     JavaBuckConfig javaBuckConfig = buckConfig.getView(JavaBuckConfig.class);
     if (!javaBuckConfig.getSkipCheckingMissingDeps()) {
-      JavacOptions javacOptions = javaBuckConfig.getDefaultJavacOptions();
-      eventListenersBuilder.add(MissingSymbolsHandler.createListener(
-          projectFilesystem,
-          knownBuildRuleTypes.getAllDescriptions(),
-          buckConfig,
-          buckEventBus,
-          console,
-          javacOptions,
-          environment));
+      eventListenersBuilder.add(missingSymbolsListenerSupplier.get());
     }
 
     eventListenersBuilder.add(new LoadBalancerEventsListener(counterRegistry));
@@ -2048,6 +2054,12 @@ public final class Main {
   public static final class DaemonBootstrap {
     private static @Nullable DaemonKillers daemonKillers;
 
+    /**
+     * Single thread for running short-lived tasks outside the command context.
+     */
+    private static final ScheduledExecutorService housekeepingExecutorService =
+        Executors.newSingleThreadScheduledExecutor();
+
     public static void main(String[] args) throws Exception {
       try {
         daemonizeIfPossible();
@@ -2075,31 +2087,32 @@ public final class Main {
           new NGListeningAddress(socketPath),
           NGServer.DEFAULT_SESSIONPOOLSIZE,
           heartbeatTimeout);
-      daemonKillers = new DaemonKillers(server, Paths.get(socketPath));
+      daemonKillers = new DaemonKillers(housekeepingExecutorService, server, Paths.get(socketPath));
       server.run();
     }
 
-    public static DaemonKillers getDaemonKillers() {
+    static DaemonKillers getDaemonKillers() {
       return Preconditions.checkNotNull(daemonKillers, "Daemon killers should be initialized.");
+    }
+
+    static void scheduleGC() {
+      housekeepingExecutorService.execute(System::gc);
     }
   }
 
   private static class DaemonKillers {
-    private static final ScheduledExecutorService daemonKillerExecutorService =
-        Executors.newSingleThreadScheduledExecutor();
-
     private final NGServer server;
     private final IdleKiller idleKiller;
     private final SocketLossKiller socketLossKiller;
 
-    DaemonKillers(NGServer server, Path socketPath) {
+    DaemonKillers(ScheduledExecutorService executorService, NGServer server, Path socketPath) {
       this.server = server;
       this.idleKiller = new IdleKiller(
-          daemonKillerExecutorService,
+          executorService,
           DAEMON_SLAYER_TIMEOUT,
           this::killServer);
       this.socketLossKiller = new SocketLossKiller(
-          daemonKillerExecutorService,
+          executorService,
           socketPath.toAbsolutePath(),
           this::killServer);
     }
@@ -2154,6 +2167,9 @@ public final class Main {
              DaemonBootstrap.getDaemonKillers().newCommandExecutionScope()) {
       new Main(context.out, context.err, context.in)
           .runMainThenExit(context.getArgs(), Optional.of(context), System.nanoTime());
+    } finally {
+      // Reclaim memory after a command finishes.
+      DaemonBootstrap.scheduleGC();
     }
   }
 }

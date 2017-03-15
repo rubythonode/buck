@@ -434,7 +434,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
     Map<String, Object> decodedResult = (Map<String, Object>) deserializedValue;
     List<Map<String, Object>> values;
     try {
-      values = (List<Map<String, Object>>) decodedResult.get("values");
+      values = (List<Map<String, Object>>) Preconditions.checkNotNull(decodedResult.get("values"));
     } catch (ClassCastException e) {
       throw new IOException("Invalid parser values", e);
     }
@@ -519,13 +519,13 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
   private static Optional<BuildFileSyntaxError> parseSyntaxError(Map<String, Object> exceptionMap) {
     String type = (String) exceptionMap.get("type");
-    if (type.equals("SyntaxError")) {
+    if ("SyntaxError".equals(type)) {
       return Optional.of(
           BuildFileSyntaxError.of(
-              Paths.get((String) exceptionMap.get("filename")),
-              (Number) exceptionMap.get("lineno"),
+              Paths.get((String) Preconditions.checkNotNull(exceptionMap.get("filename"))),
+              (Number) Preconditions.checkNotNull(exceptionMap.get("lineno")),
               Optional.ofNullable((Number) exceptionMap.get("offset")),
-              (String) exceptionMap.get("text")));
+              (String) Preconditions.checkNotNull(exceptionMap.get("text"))));
     } else {
       return Optional.empty();
     }
@@ -536,16 +536,16 @@ public class ProjectBuildFileParser implements AutoCloseable {
       Map<String, Object> exceptionMap
   ) {
     List<Map<String, Object>> traceback =
-        (List<Map<String, Object>>) exceptionMap.get("traceback");
+        (List<Map<String, Object>>) Preconditions.checkNotNull(exceptionMap.get("traceback"));
     ImmutableList.Builder<BuildFileParseExceptionStackTraceEntry> stackTraceBuilder =
         ImmutableList.builder();
     for (Map<String, Object> tracebackItem : traceback) {
       stackTraceBuilder.add(
           BuildFileParseExceptionStackTraceEntry.of(
-              Paths.get((String) tracebackItem.get("filename")),
-              (Number) tracebackItem.get("line_number"),
-              (String) tracebackItem.get("function_name"),
-              (String) tracebackItem.get("text")));
+              Paths.get((String) Preconditions.checkNotNull(tracebackItem.get("filename"))),
+              (Number) Preconditions.checkNotNull(tracebackItem.get("line_number")),
+              (String) Preconditions.checkNotNull(tracebackItem.get("function_name")),
+              (String) Preconditions.checkNotNull(tracebackItem.get("text"))));
     }
     return stackTraceBuilder.build();
   }
@@ -554,8 +554,8 @@ public class ProjectBuildFileParser implements AutoCloseable {
   static BuildFileParseExceptionData parseExceptionData(
       Map<String, Object> exceptionMap) {
     return BuildFileParseExceptionData.of(
-        (String) exceptionMap.get("type"),
-        (String) exceptionMap.get("value"),
+        (String) Preconditions.checkNotNull(exceptionMap.get("type")),
+        (String) Preconditions.checkNotNull(exceptionMap.get("value")),
         parseSyntaxError(exceptionMap),
         parseStackTrace(exceptionMap)
     );

@@ -65,6 +65,7 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 
@@ -88,6 +89,13 @@ public class CxxGenruleDescription
 
   public CxxGenruleDescription(FlavorDomain<CxxPlatform> cxxPlatforms) {
     this.cxxPlatforms = cxxPlatforms;
+  }
+
+  public static boolean wrapsCxxGenrule(
+      SourcePathRuleFinder ruleFinder,
+      SourcePath path) {
+    Optional<BuildRule> rule = ruleFinder.getRule(path);
+    return rule.map(CxxGenrule.class::isInstance).orElse(false);
   }
 
   /**
@@ -116,6 +124,21 @@ public class CxxGenruleDescription
       ImmutableList<SourcePath> paths)
       throws NoSuchBuildTargetException {
     ImmutableList.Builder<SourcePath> fixed = ImmutableList.builder();
+    for (SourcePath path : paths) {
+      fixed.add(
+          fixupSourcePath(ruleResolver, ruleFinder, cxxPlatform, path));
+    }
+    return fixed.build();
+  }
+
+  public static ImmutableSortedSet<SourcePath> fixupSourcePaths(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      CxxPlatform cxxPlatform,
+      ImmutableSortedSet<SourcePath> paths)
+      throws NoSuchBuildTargetException {
+    ImmutableSortedSet.Builder<SourcePath> fixed =
+        new ImmutableSortedSet.Builder<>(Preconditions.checkNotNull(paths.comparator()));
     for (SourcePath path : paths) {
       fixed.add(
           fixupSourcePath(ruleResolver, ruleFinder, cxxPlatform, path));
@@ -190,12 +213,11 @@ public class CxxGenruleDescription
       BuildRuleResolver resolver,
       TargetGraph targetGraph,
       A args) {
-    final Optional<CxxPlatform> cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget());
-    Preconditions.checkState(cxxPlatform.isPresent());
+    CxxPlatform cxxPlatform = cxxPlatforms.getRequiredValue(params.getBuildTarget());
     ImmutableMap.Builder<String, MacroExpander> macros = ImmutableMap.builder();
     macros.put("exe", new ExecutableMacroExpander());
     macros.put("location", new LocationMacroExpander());
-    macros.put("platform-name", new StringExpander(cxxPlatform.get().getFlavor().toString()));
+    macros.put("platform-name", new StringExpander(cxxPlatform.getFlavor().toString()));
     macros.put(
         "location-platform",
         new LocationMacroExpander() {
@@ -204,26 +226,26 @@ public class CxxGenruleDescription
               throws MacroException {
             try {
               return resolver.requireRule(
-                  input.getTarget().withAppendedFlavors(cxxPlatform.get().getFlavor()));
+                  input.getTarget().withAppendedFlavors(cxxPlatform.getFlavor()));
             } catch (NoSuchBuildTargetException e) {
               throw new MacroException(e.getHumanReadableErrorMessage());
             }
           }
         });
-    macros.put("cc", new ToolExpander(cxxPlatform.get().getCc().resolve(resolver)));
-    macros.put("cxx", new ToolExpander(cxxPlatform.get().getCxx().resolve(resolver)));
+    macros.put("cc", new ToolExpander(cxxPlatform.getCc().resolve(resolver)));
+    macros.put("cxx", new ToolExpander(cxxPlatform.getCxx().resolve(resolver)));
 
-    ImmutableList<String> asflags = cxxPlatform.get().getAsflags();
-    ImmutableList<String> cflags = cxxPlatform.get().getCflags();
-    ImmutableList<String> cxxflags = cxxPlatform.get().getCxxflags();
+    ImmutableList<String> asflags = cxxPlatform.getAsflags();
+    ImmutableList<String> cflags = cxxPlatform.getCflags();
+    ImmutableList<String> cxxflags = cxxPlatform.getCxxflags();
     macros.put("cflags", new StringExpander(shquoteJoin(Iterables.concat(cflags, asflags))));
     macros.put("cxxflags", new StringExpander(shquoteJoin(Iterables.concat(cxxflags, asflags))));
 
-    macros.put("cppflags", new CxxPreprocessorFlagsExpander(cxxPlatform.get(), CxxSource.Type.C));
+    macros.put("cppflags", new CxxPreprocessorFlagsExpander(cxxPlatform, CxxSource.Type.C));
     macros.put(
         "cxxppflags",
-        new CxxPreprocessorFlagsExpander(cxxPlatform.get(), CxxSource.Type.CXX));
-    macros.put("ld", new ToolExpander(cxxPlatform.get().getLd().resolve(resolver)));
+        new CxxPreprocessorFlagsExpander(cxxPlatform, CxxSource.Type.CXX));
+    macros.put("ld", new ToolExpander(cxxPlatform.getLd().resolve(resolver)));
     for (Linker.LinkableDepType depType : Linker.LinkableDepType.values()) {
       for (Filter filter : Filter.values()) {
         macros.put(
@@ -233,7 +255,7 @@ public class CxxGenruleDescription
                 filter == Filter.PARAM ? "-filter" : ""),
             new CxxLinkerFlagsExpander(
                 params,
-                cxxPlatform.get(),
+                cxxPlatform,
                 depType,
                 args.out,
                 filter));

@@ -93,6 +93,7 @@ import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
@@ -105,7 +106,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringWithMacrosArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceList;
@@ -1111,22 +1111,26 @@ public class ProjectGenerator {
     return target;
   }
 
-  private ImmutableList<Arg> convertStringWithMacros(
+  private ImmutableList<String> convertStringWithMacros(
       TargetNode<?, ?> node,
       Iterable<StringWithMacros> flags) {
-    ImmutableList.Builder<Arg> result = ImmutableList.builder();
+    ImmutableList.Builder<String> result = new ImmutableList.Builder<>();
     ImmutableList<? extends AbstractMacroExpander<? extends Macro>> expanders =
         ImmutableList.of(new AsIsLocationMacroExpander());
     for (StringWithMacros flag : flags) {
-      result.add(
-          StringWithMacrosArg.of(
+      BuildRuleResolver buildRuleResolver = new BuildRuleResolver(
+          TargetGraph.EMPTY,
+          new DefaultTargetNodeToBuildRuleTransformer());
+      SourcePathResolver pathResolver =
+          new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
+      StringWithMacrosArg
+          .of(
               flag,
               expanders,
               node.getBuildTarget(),
               node.getCellNames(),
-              new BuildRuleResolver(
-                  TargetGraph.EMPTY,
-                  new DefaultTargetNodeToBuildRuleTransformer())));
+              buildRuleResolver)
+          .appendToCommandLine(result, pathResolver);
     }
     return result.build();
   }
@@ -1426,25 +1430,11 @@ public class ProjectGenerator {
                 ImmutableList.of(targetNode)),
             targetNode.getConstructorArg().compilerFlags,
             targetNode.getConstructorArg().preprocessorFlags);
-        ImmutableList<String> otherLdFlags =
-            ImmutableList.<String>builder()
-                .addAll(
-                    Arg.stringify(
-                        convertStringWithMacros(
-                            targetNode,
-                            Iterables.concat(
-                                targetNode.getConstructorArg().linkerFlags,
-                                collectRecursiveExportedLinkerFlags(
-                                    ImmutableList.of(targetNode)))),
-                        // Project generation doesn't actually build arbitrary deps, so there isn't
-                        // necessarily a valid SourcePathResolver which can resolve deps.
-                        // If this becomes an issue, we'll need to construct better subgraphs which
-                        // can actually be transformed to ActionGraphs from which we can then
-                        // construct a valid SourcePathResolver.
-                        // Right now, we generate projects from unflavored TargetGraphs, which can't
-                        // actually be transformed into BuildRules.
-                        null))
-                .build();
+        ImmutableList<String> otherLdFlags = convertStringWithMacros(
+            targetNode,
+            Iterables.concat(
+                targetNode.getConstructorArg().linkerFlags,
+                collectRecursiveExportedLinkerFlags(ImmutableList.of(targetNode))));
 
         appendConfigsBuilder
             .put(
@@ -1497,16 +1487,7 @@ public class ProjectGenerator {
           String sdk = flags.getFirst().pattern().replaceAll("[*.]", "");
           platformLinkerFlagsBuilder.put(
               sdk,
-              Arg.stringify(
-                  convertStringWithMacros(targetNode, flags.getSecond()),
-                  // Project generation doesn't actually build arbitrary deps, so there isn't
-                  // necessarily a valid SourcePathResolver which can resolve deps.
-                  // If this becomes an issue, we'll need to construct better subgraphs which
-                  // can actually be transformed to ActionGraphs from which we can then
-                  // construct a valid SourcePathResolver.
-                  // Right now, we generate projects from unflavored TargetGraphs, which can't
-                  // actually be transformed into BuildRules.
-                  null));
+              convertStringWithMacros(targetNode, flags.getSecond()));
         }
         ImmutableMultimap<String, ImmutableList<String>> platformLinkerFlags =
             platformLinkerFlagsBuilder.build();
@@ -1589,12 +1570,18 @@ public class ProjectGenerator {
       BuildRuleResolver resolver = buildRuleResolverForNode.apply(targetNode);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-      return ImmutableSortedMap.copyOf(
-          CxxDescriptionEnhancer.parseExportedHeaders(
-              targetNode.getBuildTarget(),
-              pathResolver,
-              Optional.empty(),
-              arg));
+      try {
+        return ImmutableSortedMap.copyOf(
+            CxxDescriptionEnhancer.parseExportedHeaders(
+                targetNode.getBuildTarget(),
+                resolver,
+                ruleFinder,
+                pathResolver,
+                Optional.empty(),
+                arg));
+      } catch (NoSuchBuildTargetException e) {
+        throw new RuntimeException(e);
+      }
     }
   }
 
@@ -1615,12 +1602,18 @@ public class ProjectGenerator {
       BuildRuleResolver resolver = buildRuleResolverForNode.apply(targetNode);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-      return ImmutableSortedMap.copyOf(
-          CxxDescriptionEnhancer.parseHeaders(
-              targetNode.getBuildTarget(),
-              pathResolver,
-              Optional.empty(),
-              arg));
+      try {
+        return ImmutableSortedMap.copyOf(
+            CxxDescriptionEnhancer.parseHeaders(
+                targetNode.getBuildTarget(),
+                resolver,
+                ruleFinder,
+                pathResolver,
+                Optional.empty(),
+                arg));
+      } catch (NoSuchBuildTargetException e) {
+        throw new RuntimeException(e);
+      }
     }
   }
 

@@ -227,25 +227,22 @@ public class JavaInMemoryFileManager extends ForwardingJavaFileManager<StandardJ
       JavaFileObject.Kind kind,
       String path) throws IOException {
     if (!fileForOutputPaths.containsKey(path)) {
+      // Sadly, we can't call this in the computeIfAbsent because it throws.
       ensureDirectories(path);
-      JavaFileObject obj = new JavaInMemoryFileObject(
-          getUriPath(path),
-          path,
-          kind,
-          jarOutputStream,
-          jarFileSemaphore);
-      fileForOutputPaths.put(path, obj);
     }
-
-    return fileForOutputPaths.get(path);
+    return fileForOutputPaths.computeIfAbsent(path,
+        p -> new JavaInMemoryFileObject(
+            getUriPath(p),
+            p,
+            kind,
+            jarOutputStream,
+            jarFileSemaphore));
   }
 
   private JavaFileObject getJavaNoOpFileObject(String path, JavaFileObject.Kind kind) {
-    if (!fileForOutputPaths.containsKey(path)) {
-      JavaFileObject obj = new JavaNoOpFileObject(getUriPath(path), path, kind);
-      fileForOutputPaths.put(path, obj);
-    }
-    return fileForOutputPaths.get(path);
+    return fileForOutputPaths.computeIfAbsent(
+        path,
+        p -> new JavaNoOpFileObject(getUriPath(p), p, kind));
   }
 
   /*

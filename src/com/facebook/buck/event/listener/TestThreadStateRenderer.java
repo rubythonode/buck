@@ -29,7 +29,6 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
 public class TestThreadStateRenderer implements ThreadStateRenderer {
@@ -45,13 +44,13 @@ public class TestThreadStateRenderer implements ThreadStateRenderer {
       Map<Long, Optional<? extends TestSummaryEvent>> testSummariesByThread,
       Map<Long, Optional<? extends TestStatusMessageEvent>> testStatusMessagesByThread,
       Map<Long, Optional<? extends LeafEvent>> runningStepsByThread,
-      AccumulatedTimeTracker accumulatedTimeTracker) {
+      BuildRuleThreadTracker buildRuleThreadTracker) {
     this.threadInformationMap = getThreadInformationMap(
         currentTimeMs,
         testSummariesByThread,
         testStatusMessagesByThread,
         runningStepsByThread,
-        accumulatedTimeTracker);
+        buildRuleThreadTracker);
     this.commonThreadStateRenderer = new CommonThreadStateRenderer(
         ansi,
         formatTimeFunction,
@@ -64,11 +63,11 @@ public class TestThreadStateRenderer implements ThreadStateRenderer {
       Map<Long, Optional<? extends TestSummaryEvent>> testSummariesByThread,
       Map<Long, Optional<? extends TestStatusMessageEvent>> testStatusMessagesByThread,
       Map<Long, Optional<? extends LeafEvent>> runningStepsByThread,
-      AccumulatedTimeTracker accumulatedTimeTracker) {
+      BuildRuleThreadTracker buildRuleThreadTracker) {
     ImmutableMap.Builder<Long, ThreadRenderingInformation> threadInformationMapBuilder =
         ImmutableMap.builder();
     Map<Long, Optional<? extends TestRuleEvent>> testEventsByThread =
-        accumulatedTimeTracker.getTestEventsByThread();
+        buildRuleThreadTracker.getTestEventsByThread();
     ImmutableList<Long> threadIds = ImmutableList.copyOf(testEventsByThread.keySet());
     for (long threadId : threadIds) {
       Optional<? extends TestRuleEvent> testRuleEvent = testEventsByThread.get(threadId);
@@ -76,42 +75,19 @@ public class TestThreadStateRenderer implements ThreadStateRenderer {
         continue;
       }
       Optional<BuildTarget> buildTarget = Optional.empty();
+      long elapsedTimeMs = 0;
       if (testRuleEvent.isPresent()) {
         buildTarget = Optional.of(testRuleEvent.get().getBuildTarget());
+        elapsedTimeMs = currentTimeMs - testRuleEvent.get().getTimestamp();
       }
-      Optional<? extends TestSummaryEvent> testSummary = testSummariesByThread.get(threadId);
-      if (testSummary == null) {
-        testSummary = Optional.empty();
-      }
-      Optional<? extends TestStatusMessageEvent> testStatusMessage = testStatusMessagesByThread.get(
-          threadId);
-      if (testStatusMessage == null) {
-        testStatusMessage = Optional.empty();
-      }
-      AtomicLong accumulatedTime = null;
-      if (buildTarget.isPresent()) {
-        accumulatedTime = accumulatedTimeTracker.getTime(buildTarget.get());
-      }
-      long elapsedTimeMs = 0;
-      if (testRuleEvent.isPresent() && accumulatedTime != null) {
-        elapsedTimeMs = currentTimeMs - testRuleEvent.get().getTimestamp() + accumulatedTime.get();
-      } else {
-        testRuleEvent = Optional.empty();
-        buildTarget = Optional.empty();
-      }
-      Optional<? extends LeafEvent> runningStep = runningStepsByThread.get(threadId);
-      if (runningStep == null) {
-        runningStep = Optional.empty();
-      }
-
       threadInformationMapBuilder.put(
           threadId,
           new ThreadRenderingInformation(
               buildTarget,
               testRuleEvent,
-              testSummary,
-              testStatusMessage,
-              runningStep,
+              testSummariesByThread.getOrDefault(threadId, Optional.empty()),
+              testStatusMessagesByThread.getOrDefault(threadId, Optional.empty()),
+              runningStepsByThread.getOrDefault(threadId, Optional.empty()),
               elapsedTimeMs));
     }
     return threadInformationMapBuilder.build();

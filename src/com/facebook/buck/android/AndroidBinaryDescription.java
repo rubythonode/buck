@@ -151,12 +151,6 @@ public class AndroidBinaryDescription implements
         PerfEventId.of("AndroidBinaryDescription"),
         "target", params.getBuildTarget().toString())) {
 
-      if (args.useLinearAllocSplitDex.isPresent()) {
-        LOG.warn(
-            "Target %s specified use_linear_alloc_split_dex, which is now always enabled.",
-            params.getBuildTarget());
-      }
-
       ResourceCompressionMode compressionMode = getCompressionMode(args);
 
       BuildTarget target = params.getBuildTarget();
@@ -195,6 +189,10 @@ public class AndroidBinaryDescription implements
             !args.androidSdkProguardConfig.isPresent(),
             "The deprecated use_android_proguard_config_with_optimizations parameter" +
                 " cannot be used with android_sdk_proguard_config.");
+        LOG.error(
+            "Target %s specified use_android_proguard_config_with_optimizations, " +
+                "which is deprecated. Use android_sdk_proguard_config.",
+            params.getBuildTarget());
         androidSdkProguardConfig = args.useAndroidProguardConfigWithOptimizations.orElse(false)
             ? ProGuardObfuscateStep.SdkProguardType.OPTIMIZED
             : ProGuardObfuscateStep.SdkProguardType.DEFAULT;
@@ -204,13 +202,16 @@ public class AndroidBinaryDescription implements
       if (!args.exopackageModes.isEmpty()) {
         exopackageModes = EnumSet.copyOf(args.exopackageModes);
       } else if (args.exopackage.orElse(false)) {
+        LOG.error(
+            "Target %s specified exopackage=True, which is deprecated. Use exopackage_modes.",
+            params.getBuildTarget());
         exopackageModes = EnumSet.of(ExopackageMode.SECONDARY_DEX);
       }
 
       DexSplitMode dexSplitMode = createDexSplitMode(args, exopackageModes);
 
       PackageType packageType = getPackageType(args);
-      boolean shouldPreDex = !args.disablePreDex.orElse(false) &&
+      boolean shouldPreDex = !args.disablePreDex &&
           PackageType.DEBUG.equals(packageType) &&
           !args.preprocessJavaClassesBash.isPresent();
 
@@ -228,26 +229,26 @@ public class AndroidBinaryDescription implements
           args.manifest,
           packageType,
           ImmutableSet.copyOf(args.cpuFilters),
-          args.buildStringSourceMap.orElse(false),
+          args.buildStringSourceMap,
           shouldPreDex,
           AndroidBinary.getPrimaryDexPath(params.getBuildTarget(), params.getProjectFilesystem()),
           dexSplitMode,
           ImmutableSet.copyOf(args.noDx.orElse(ImmutableSet.of())),
           /* resourcesToExclude */ ImmutableSet.of(),
-          args.skipCrunchPngs.orElse(false),
-          args.includesVectorDrawables.orElse(false),
+          args.skipCrunchPngs,
+          args.includesVectorDrawables,
           javacOptions,
           exopackageModes,
           args.buildConfigValues,
           args.buildConfigValuesFile,
           Optional.empty(),
-          args.trimResourceIds.orElse(false),
+          args.trimResourceIds,
           args.keepResourcePattern,
           nativePlatforms,
           Optional.of(args.nativeLibraryMergeMap),
           args.nativeLibraryMergeGlue,
           args.nativeLibraryMergeCodeGenerator,
-          args.enableRelinker.orElse(false) ? RelinkerMode.ENABLED : RelinkerMode.DISABLED,
+          args.enableRelinker ? RelinkerMode.ENABLED : RelinkerMode.DISABLED,
           dxExecutorService,
           args.manifestEntries,
           cxxBuckConfig,
@@ -338,18 +339,18 @@ public class AndroidBinaryDescription implements
     DexStore defaultDexStore = ExopackageMode.enabledForSecondaryDexes(exopackageModes)
         ? DexStore.JAR
         : DexStore.RAW;
-    DexSplitStrategy dexSplitStrategy = args.minimizePrimaryDexSize.orElse(false)
+    DexSplitStrategy dexSplitStrategy = args.minimizePrimaryDexSize
         ? DexSplitStrategy.MINIMIZE_PRIMARY_DEX_SIZE
         : DexSplitStrategy.MAXIMIZE_PRIMARY_DEX_SIZE;
     return new DexSplitMode(
-        args.useSplitDex.orElse(false),
+        args.useSplitDex,
         dexSplitStrategy,
         args.dexCompression.orElse(defaultDexStore),
         args.linearAllocHardLimit.orElse(DEFAULT_LINEAR_ALLOC_HARD_LIMIT),
         args.primaryDexPatterns,
         args.primaryDexClassesFile,
         args.primaryDexScenarioFile,
-        args.primaryDexScenarioOverflowAllowed.orElse(false),
+        args.primaryDexScenarioOverflowAllowed,
         args.secondaryDexHeadClassesFile,
         args.secondaryDexTailClassesFile);
   }
@@ -466,10 +467,9 @@ public class AndroidBinaryDescription implements
     public BuildTarget keystore;
     public Optional<String> packageType;
     @Hint(isDep = false) public Optional<Set<BuildTarget>> noDx = Optional.of(ImmutableSet.of());
-    public Optional<Boolean> useSplitDex;
-    public Optional<Boolean> useLinearAllocSplitDex;
-    public Optional<Boolean> minimizePrimaryDexSize;
-    public Optional<Boolean> disablePreDex;
+    public Boolean useSplitDex = false;
+    public Boolean minimizePrimaryDexSize = false;
+    public Boolean disablePreDex = false;
     // TODO(natthu): mark this as deprecated.
     public Optional<Boolean> exopackage;
     public Set<ExopackageMode> exopackageModes = ImmutableSet.of();
@@ -480,12 +480,12 @@ public class AndroidBinaryDescription implements
     public List<String> proguardJvmArgs = ImmutableList.of();
     public Optional<SourcePath> proguardConfig;
     public Optional<String> resourceCompression;
-    public Optional<Boolean> skipCrunchPngs;
-    public Optional<Boolean> includesVectorDrawables;
+    public boolean skipCrunchPngs = false;
+    public boolean includesVectorDrawables = false;
     public List<String> primaryDexPatterns = ImmutableList.of();
     public Optional<SourcePath> primaryDexClassesFile;
     public Optional<SourcePath> primaryDexScenarioFile;
-    public Optional<Boolean> primaryDexScenarioOverflowAllowed;
+    public boolean primaryDexScenarioOverflowAllowed = false;
     public Optional<SourcePath> secondaryDexHeadClassesFile;
     public Optional<SourcePath> secondaryDexTailClassesFile;
     public Set<BuildTarget> applicationModuleTargets = ImmutableSet.of();
@@ -506,24 +506,24 @@ public class AndroidBinaryDescription implements
     public Set<RType> bannedDuplicateResourceTypes = ImmutableSet.of();
     public Set<RType> allowedDuplicateResourceTypes = ImmutableSet.of();
 
-    public Optional<Boolean> trimResourceIds;
+    public boolean trimResourceIds = false;
     public Optional<String> keepResourcePattern;
     public Optional<String> resourceUnionPackage;
     public ImmutableSet<String> locales = ImmutableSet.of();
-    public Optional<Boolean> buildStringSourceMap;
+    public boolean buildStringSourceMap = false;
     public Set<TargetCpuType> cpuFilters = ImmutableSet.of();
     public ImmutableSortedSet<BuildTarget> preprocessJavaClassesDeps = ImmutableSortedSet.of();
     public Optional<String> preprocessJavaClassesBash;
-    public Optional<Boolean> reorderClassesIntraDex;
+    public boolean reorderClassesIntraDex = false;
     public Optional<SourcePath> dexReorderToolFile;
     public Optional<SourcePath> dexReorderDataDumpFile;
     public Optional<Integer> xzCompressionLevel;
-    public Optional<Boolean> packageAssetLibraries;
-    public Optional<Boolean> compressAssetLibraries;
+    public boolean packageAssetLibraries = false;
+    public boolean compressAssetLibraries = false;
     public Map<String, List<Pattern>> nativeLibraryMergeMap = ImmutableMap.of();
     public Optional<BuildTarget> nativeLibraryMergeGlue;
     public Optional<BuildTarget> nativeLibraryMergeCodeGenerator;
-    public Optional<Boolean> enableRelinker;
+    public boolean enableRelinker = false;
     public ManifestEntries manifestEntries = ManifestEntries.empty();
     public BuildConfigFields buildConfigValues = BuildConfigFields.empty();
     public Optional<Boolean> redex;
@@ -531,7 +531,7 @@ public class AndroidBinaryDescription implements
     public ImmutableList<String> redexExtraArgs = ImmutableList.of();
 
     public Optional<SourcePath> buildConfigValuesFile;
-    public Optional<Boolean> skipProguard;
+    public boolean skipProguard = false;
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
 

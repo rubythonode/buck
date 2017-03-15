@@ -149,14 +149,14 @@ public class AndroidBinary
     }
   }
 
-  static enum ExopackageMode {
+  enum ExopackageMode {
     SECONDARY_DEX(1),
     NATIVE_LIBRARY(2),
     ;
 
     private final int code;
 
-    private ExopackageMode(int code) {
+    ExopackageMode(int code) {
       this.code = code;
     }
 
@@ -220,7 +220,7 @@ public class AndroidBinary
   private final Function<String, String> macroExpander;
   @AddToRuleKey
   private final Optional<String> preprocessJavaClassesBash;
-  private final Optional<Boolean> reorderClassesIntraDex;
+  private final boolean reorderClassesIntraDex;
   private final Optional<SourcePath> dexReorderToolFile;
   private final Optional<SourcePath> dexReorderDataDumpFile;
   protected final ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex;
@@ -232,13 +232,13 @@ public class AndroidBinary
   @AddToRuleKey
   private final Optional<Integer> xzCompressionLevel;
   @AddToRuleKey
-  private final Optional<Boolean> packageAssetLibraries;
+  private final boolean packageAssetLibraries;
   @AddToRuleKey
-  private final Optional<Boolean> compressAssetLibraries;
+  private final boolean compressAssetLibraries;
   @AddToRuleKey
   private final ManifestEntries manifestEntries;
   @AddToRuleKey
-  private final Optional<Boolean> skipProguard;
+  private final boolean skipProguard;
   @AddToRuleKey
   private final JavaRuntimeLauncher javaRuntimeLauncher;
   @AddToRuleKey
@@ -248,7 +248,7 @@ public class AndroidBinary
   @AddToRuleKey
   private ImmutableList<SourcePath> primaryApkAssetsZips;
   @AddToRuleKey
-  private Optional<SourcePath> pathToGeneratedProguardConfigDir;
+  private SourcePath aaptGeneratedProguardConfigFile;
 
   @AddToRuleKey
   @Nullable
@@ -269,7 +269,7 @@ public class AndroidBinary
       ProGuardObfuscateStep.SdkProguardType sdkProguardConfig,
       Optional<Integer> proguardOptimizationPasses,
       Optional<SourcePath> proguardConfig,
-      Optional<Boolean> skipProguard,
+      boolean skipProguard,
       Optional<RedexOptions> redexOptions,
       ResourceCompressionMode resourceCompressionMode,
       Set<NdkCxxPlatforms.TargetCpuType> cpuFilters,
@@ -279,13 +279,13 @@ public class AndroidBinary
       Optional<String> preprocessJavaClassesBash,
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
       AndroidGraphEnhancementResult enhancementResult,
-      Optional<Boolean> reorderClassesIntraDex,
+      boolean reorderClassesIntraDex,
       Optional<SourcePath> dexReorderToolFile,
       Optional<SourcePath> dexReorderDataDumpFile,
       Optional<Integer> xzCompressionLevel,
       ListeningExecutorService dxExecutorService,
-      Optional<Boolean> packageAssetLibraries,
-      Optional<Boolean> compressAssetLibraries,
+      boolean packageAssetLibraries,
+      boolean compressAssetLibraries,
       ManifestEntries manifestEntries,
       JavaRuntimeLauncher javaRuntimeLauncher) {
     super(params);
@@ -331,7 +331,8 @@ public class AndroidBinary
     this.resourcesApkPath =
         enhancementResult.getPrimaryResourcesApkPath();
     this.primaryApkAssetsZips = enhancementResult.getPrimaryApkAssetZips();
-    this.pathToGeneratedProguardConfigDir = enhancementResult.getPathToGeneratedProguardConfigDir();
+    this.aaptGeneratedProguardConfigFile =
+        enhancementResult.getSourcePathToAaptGeneratedProguardConfigFile();
 
     if (exopackageModes.isEmpty()) {
       this.abiPath = null;
@@ -373,7 +374,7 @@ public class AndroidBinary
     return proguardConfig;
   }
 
-  public Optional<Boolean> getSkipProguard() {
+  public boolean getSkipProguard() {
     return skipProguard;
   }
 
@@ -481,7 +482,7 @@ public class AndroidBinary
 
     for (final APKModule module : enhancementResult.getAPKModuleGraph().getAPKModules()) {
       boolean shouldPackageAssetLibraries =
-          packageAssetLibraries.orElse(Boolean.FALSE) || !module.isRootModule();
+          packageAssetLibraries || !module.isRootModule();
 
       if (!ExopackageMode.enabledForNativeLibraries(exopackageModes) &&
           enhancementResult.getCopyNativeLibraries().isPresent() &&
@@ -601,8 +602,7 @@ public class AndroidBinary
 
     // redex
     if (applyRedex) {
-      Path proguardConfigDir = enhancementResult.getAaptPackageResources()
-          .getPathToGeneratedProguardConfigDir();
+      Path proguardConfigDir = getProguardTextFilesPath();
       Path redexedApk = apkPath.getParent().resolve(apkPath.getFileName().toString() + ".redex");
       apkToAlign = redexedApk;
       ImmutableList<Step> redexSteps = ReDexStep.createSteps(
@@ -663,7 +663,7 @@ public class AndroidBinary
           }
         });
 
-    if (packageAssetLibraries.orElse(Boolean.FALSE) || !module.isRootModule()) {
+    if (packageAssetLibraries || !module.isRootModule()) {
       if (enhancementResult.getCopyNativeLibraries().isPresent() &&
           enhancementResult.getCopyNativeLibraries().get().containsKey(module)) {
         // Copy in cxx libraries marked as assets. Filtering and renaming was already done
@@ -727,7 +727,7 @@ public class AndroidBinary
             }
           });
     }
-    if (compressAssetLibraries.orElse(Boolean.FALSE) || !module.isRootModule()) {
+    if (compressAssetLibraries || !module.isRootModule()) {
       final ImmutableList.Builder<Path> outputAssetLibrariesBuilder = ImmutableList.builder();
       steps.add(
           new AbstractExecutionStep("rename_asset_libraries_as_temp_files_" + module.getName()) {
@@ -853,7 +853,7 @@ public class AndroidBinary
           packageableCollection.getProguardConfigs().stream()
               .map(resolver::getAbsolutePath)
               .collect(MoreCollectors.toImmutableSet()),
-          skipProguard.orElse(false),
+          skipProguard,
           steps,
           buildableContext,
           resolver);
@@ -973,6 +973,16 @@ public class AndroidBinary
     return BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), format);
   }
 
+  /**
+   * Directory of text files used by proguard.  Unforunately, this contains both inputs and outputs.
+   */
+  private Path getProguardTextFilesPath() {
+    return BuildTargets.getGenPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "%s/proguard");
+  }
+
   @VisibleForTesting
   static Path getProguardOutputFromInputClasspath(Path proguardConfigDir, Path classpathEntry) {
     // Hehe, this is so ridiculously fragile.
@@ -996,7 +1006,6 @@ public class AndroidBinary
       ImmutableList.Builder<Step> steps,
       BuildableContext buildableContext,
       SourcePathResolver resolver) {
-    Preconditions.checkArgument(pathToGeneratedProguardConfigDir.isPresent());
     ImmutableSet.Builder<Path> additionalLibraryJarsForProguardBuilder = ImmutableSet.builder();
 
     for (JavaLibrary buildRule : rulesToExcludeFromDex) {
@@ -1014,7 +1023,7 @@ public class AndroidBinary
       proguardConfigsBuilder.add(resolver.getAbsolutePath(proguardConfig.get()));
     }
 
-    Path proguardConfigDir = resolver.getRelativePath(pathToGeneratedProguardConfigDir.get());
+    Path proguardConfigDir = getProguardTextFilesPath();
     // Transform our input classpath to a set of output locations for each input classpath.
     // TODO(jasta): the output path we choose is the result of a slicing function against
     // input classpath. This is fragile and should be replaced with knowledge of the BuildTarget.
@@ -1032,7 +1041,7 @@ public class AndroidBinary
             Optional.empty(),
         proguardMaxHeapSize,
         proguardAgentPath,
-        proguardConfigDir.resolve("proguard.txt"),
+        resolver.getRelativePath(aaptGeneratedProguardConfigFile),
         proguardConfigsBuilder.build(),
         sdkProguardConfig,
         optimizationPasses,
@@ -1052,12 +1061,6 @@ public class AndroidBinary
     } else {
       return ImmutableSet.copyOf(inputOutputEntries.values());
     }
-  }
-
-  /** Helper method to check whether intra-dex reordering is enabled
-   */
-  private boolean isReorderingClasses() {
-    return (reorderClassesIntraDex.isPresent() && reorderClassesIntraDex.get());
   }
 
   /**
@@ -1095,7 +1098,7 @@ public class AndroidBinary
       Optional<Path> proguardFullConfigFile = Optional.empty();
       Optional<Path> proguardMappingFile = Optional.empty();
       if (packageType.isBuildWithObfuscation()) {
-        Path proguardConfigDir = resolver.getRelativePath(pathToGeneratedProguardConfigDir.get());
+        Path proguardConfigDir = getProguardTextFilesPath();
         proguardFullConfigFile = Optional.of(proguardConfigDir.resolve("configuration.txt"));
         proguardMappingFile = Optional.of(proguardConfigDir.resolve("mapping.txt"));
       }
@@ -1151,7 +1154,7 @@ public class AndroidBinary
           additionalDexStoresZipDir,
           proguardFullConfigFile,
           proguardMappingFile,
-          skipProguard.orElse(false),
+          skipProguard,
           dexSplitMode,
           dexSplitMode.getPrimaryDexScenarioFile().map(resolver::getAbsolutePath),
           dexSplitMode.getPrimaryDexClassesFile().map(resolver::getAbsolutePath),
@@ -1164,7 +1167,7 @@ public class AndroidBinary
 
       // Add the secondary dex directory that has yet to be created, but will be by the
       // smart dexing command.  Smart dex will handle "cleaning" this directory properly.
-      if (isReorderingClasses()) {
+      if (reorderClassesIntraDex) {
         secondaryDexDir = Optional.of(secondaryDexParentDir.resolve(
               SMART_DEX_SECONDARY_DEX_SUBDIR));
         Path intraDexReorderSecondaryDexDir = secondaryDexParentDir.resolve(SECONDARY_DEX_SUBDIR);
@@ -1241,7 +1244,7 @@ public class AndroidBinary
         ? EnumSet.of(DxStep.Option.NO_LOCALS)
         : EnumSet.of(DxStep.Option.NO_OPTIMIZE);
     Path selectedPrimaryDexPath = primaryDexPath;
-    if (isReorderingClasses()) {
+    if (reorderClassesIntraDex) {
       String primaryDexFileName = primaryDexPath.getFileName().toString();
       String smartDexPrimaryDexFileName = "smart-dex-" + primaryDexFileName;
       Path smartDexPrimaryDexPath = Paths.get(primaryDexPath.toString().replace(primaryDexFileName,
@@ -1261,7 +1264,7 @@ public class AndroidBinary
         xzCompressionLevel);
     steps.add(smartDexingCommand);
 
-    if (isReorderingClasses()) {
+    if (reorderClassesIntraDex) {
       IntraDexReorderStep intraDexReorderStep = new IntraDexReorderStep(
           getProjectFilesystem(),
           resolver.getAbsolutePath(dexReorderToolFile.get()),
@@ -1304,11 +1307,11 @@ public class AndroidBinary
 
     if (ExopackageMode.enabledForNativeLibraries(exopackageModes) &&
         enhancementResult.getCopyNativeLibraries().isPresent()) {
-      CopyNativeLibraries copyNativeLibraries =
+      CopyNativeLibraries copyNativeLibraries = Preconditions.checkNotNull(
           enhancementResult
               .getCopyNativeLibraries()
               .get()
-              .get(enhancementResult.getAPKModuleGraph().getRootAPKModule());
+              .get(enhancementResult.getAPKModuleGraph().getRootAPKModule()));
       builder.setNativeLibsInfo(
           ExopackageInfo.NativeLibsInfo.of(
               copyNativeLibraries.getPathToMetadataTxt(),

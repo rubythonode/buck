@@ -122,12 +122,16 @@ public class CxxLuaExtensionDescription implements
     ImmutableMap<String, CxxSource> srcs =
         CxxDescriptionEnhancer.parseCxxSources(
             params.getBuildTarget(),
+            ruleResolver,
+            ruleFinder,
             pathResolver,
             cxxPlatform,
             args);
     ImmutableMap<Path, SourcePath> headers =
         CxxDescriptionEnhancer.parseHeaders(
             params.getBuildTarget(),
+            ruleResolver,
+            ruleFinder,
             pathResolver,
             Optional.of(cxxPlatform),
             args);
